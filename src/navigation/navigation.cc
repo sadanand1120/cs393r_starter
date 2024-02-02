@@ -51,6 +51,16 @@ VisualizationMsg global_viz_msg_;
 AckermannCurvatureDriveMsg drive_msg_;
 // Epsilon value for handling limited numerical precision.
 const float kEpsilon = 1e-5;
+
+/* ********** *
+ * PARAMETERS *
+ * ********** *
+*/
+
+const float max_accel = 4;
+const float max_vel = 1;
+const float time_interval = ??;
+
 } //namespace
 
 namespace navigation {
@@ -113,6 +123,34 @@ void Navigation::ObservePointCloud(const vector<Vector2f>& cloud,
   point_cloud_ = cloud;                                     
 }
 
+double Navigation::get_abs_val_velocity(double arc_length){
+TODO: Need to consider +/- of velocity
+	curr_vel_abs_val = sqrt(robot_vel[0] ** 2 + robot_vel[1] ** 2);
+	if (arc_length <= curr_vel_abs_val / (2 * max_accel)){
+		// Decelerate
+		return cur_vel_abs_val - (max_accel * time_interval);
+	} else {
+		if (cur_vel_abs_val == max_vel){
+			// Maintain
+			return max_vel;
+		} else {
+			// Find if we can accelerate safely here
+			// by forward evaluation of constraints
+			
+			temp_next_vel = cur_vel_abs_val + (max_accel * time_interval);
+			temp_next_arc_length = arc_length - (temp_next_vel * time interval);
+
+			if (temp_next_arc_length <= temp_next_vel / (2 * max_accel)){
+				// Unsafe to accelerate
+				return cur_vel_abs_val;
+			} else {
+				// Can accelerate safely here
+				return cur_vel_abs_val + (max_accel * time_interval);
+			}
+		}
+	}
+}
+
 void Navigation::Run() {
   // This function gets called 20 times a second to form the control loop.
   
@@ -128,9 +166,10 @@ void Navigation::Run() {
   
   // The latest observed point cloud is accessible via "point_cloud_"
 
-  // Eventually, you will have to set the control values to issue drive commands:
-  drive_msg_.curvature = 0.0;
-  drive_msg_.velocity = 1.0;
+  // Based on selected curvature (and thus arc lenght), get potential velocity value
+  velocity = get_abs_val_velocity(arc_length);
+  drive_msg_.curvature = curvature;
+  drive_msg_.velocity = velocity;
 
   // Add timestamps to all messages.
   local_viz_msg_.header.stamp = ros::Time::now();
