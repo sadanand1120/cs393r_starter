@@ -62,6 +62,13 @@ class Navigation {
   void ObservePointCloud(const std::vector<Eigen::Vector2f>& cloud,
                          double time);
 
+  // This function evaluates whether the robot is moving forward
+  // or backwards in its base link frame
+  bool check_is_backward();
+
+  // This function returns the absolute value of the velocity 
+  double get_abs_val_velocity(double arc_length);
+
   // Main function called continously from main
   void Run();
   // Used to set the next target pose.

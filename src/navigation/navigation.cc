@@ -59,7 +59,7 @@ const float kEpsilon = 1e-5;
 
 const float max_accel = 4;
 const float max_vel = 1;
-const float time_interval = ??;
+const float time_interval = 0.001; // TODO: Get an actual value for this?
 
 } //namespace
 
@@ -126,24 +126,24 @@ void Navigation::ObservePointCloud(const vector<Vector2f>& cloud,
 bool Navigation::check_is_backward(){
 	// Rotate robot's velocity (which is in map frame) into base link frame
 	// based off of robot's orientation
-	Rotation2Df r(robot_angle_); // TODO: Check that this is the correct units
-	Vector2f base_link_vel = r * robot_vel_;
+	Eigen::Rotation2Df r(robot_angle_); // TODO: Check that this is the correct units
+	Eigen::Vector2f base_link_vel = r * robot_vel_;
 
 	// Now check whether base link velocity is positive in x (i.e. forward)
-	return base_link_vel.x >= 0;
+	return base_link_vel.x() >= 0;
 }
 
 double Navigation::get_abs_val_velocity(double arc_length){
-	cur_vel_abs_val = sqrt(robot_vel_.x ** 2 + robot_vel_.y ** 2);
+	double cur_vel_abs_val = sqrt(robot_vel_.x()*robot_vel_.x() + robot_vel_.y()*robot_vel_.y());
 
-      	is_backward = check_is_backward()
+      	bool is_backward = Navigation::check_is_backward();
 	if (is_backward){
 		cur_vel_abs_val *= -1;
 	}	
 
-	if (arc_length <= curr_vel_abs_val / (2 * max_accel)){
+	if (arc_length <= cur_vel_abs_val / (2 * max_accel)){
 		// Decelerate
-		if (is_backward()){
+		if (is_backward){
 			return cur_vel_abs_val + (max_accel * time_interval);
 		} else {
 			return cur_vel_abs_val - (max_accel * time_interval);
@@ -156,8 +156,8 @@ double Navigation::get_abs_val_velocity(double arc_length){
 			// Find if we can accelerate safely here
 			// by forward evaluation of constraints
 			
-			temp_next_vel = cur_vel_abs_val + (max_accel * time_interval);
-			temp_next_arc_length = arc_length - (temp_next_vel * time interval);
+			double temp_next_vel = cur_vel_abs_val + (max_accel * time_interval);
+			double temp_next_arc_length = arc_length - (temp_next_vel * time_interval);
 
 			if (temp_next_arc_length <= temp_next_vel / (2 * max_accel)){
 				// Unsafe to accelerate
@@ -172,6 +172,9 @@ double Navigation::get_abs_val_velocity(double arc_length){
 			}
 		}
 	}
+
+	// Default case, shouldn't reach
+	return 0.0;
 }
 
 void Navigation::Run() {
@@ -190,7 +193,12 @@ void Navigation::Run() {
   // The latest observed point cloud is accessible via "point_cloud_"
 
   // Based on selected curvature (and thus arc lenght), get potential velocity value
-  velocity = get_abs_val_velocity(arc_length);
+
+  // TODO: REMOVE THESE TEMP VALUES
+  double arc_length = 5;
+  double curvature = 1 / 5;
+
+  double velocity = Navigation::get_abs_val_velocity(arc_length);
   drive_msg_.curvature = curvature;
   drive_msg_.velocity = velocity;
 
