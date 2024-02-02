@@ -123,12 +123,31 @@ void Navigation::ObservePointCloud(const vector<Vector2f>& cloud,
   point_cloud_ = cloud;                                     
 }
 
+bool Navigation::check_is_backward(){
+	// Rotate robot's velocity (which is in map frame) into base link frame
+	// based off of robot's orientation
+	Rotation2Df r(robot_angle_); // TODO: Check that this is the correct units
+	Vector2f base_link_vel = r * robot_vel_;
+
+	// Now check whether base link velocity is positive in x (i.e. forward)
+	return base_link_vel.x >= 0;
+}
+
 double Navigation::get_abs_val_velocity(double arc_length){
-TODO: Need to consider +/- of velocity
-	curr_vel_abs_val = sqrt(robot_vel[0] ** 2 + robot_vel[1] ** 2);
+	cur_vel_abs_val = sqrt(robot_vel_.x ** 2 + robot_vel_.y ** 2);
+
+      	is_backward = check_is_backward()
+	if (is_backward){
+		cur_vel_abs_val *= -1;
+	}	
+
 	if (arc_length <= curr_vel_abs_val / (2 * max_accel)){
 		// Decelerate
-		return cur_vel_abs_val - (max_accel * time_interval);
+		if (is_backward()){
+			return cur_vel_abs_val + (max_accel * time_interval);
+		} else {
+			return cur_vel_abs_val - (max_accel * time_interval);
+		}
 	} else {
 		if (cur_vel_abs_val == max_vel){
 			// Maintain
@@ -145,7 +164,11 @@ TODO: Need to consider +/- of velocity
 				return cur_vel_abs_val;
 			} else {
 				// Can accelerate safely here
-				return cur_vel_abs_val + (max_accel * time_interval);
+				if (is_backward){
+					return cur_vel_abs_val - (max_accel * time_interval);
+				} else {
+					return cur_vel_abs_val + (max_accel * time_interval);
+				}
 			}
 		}
 	}
