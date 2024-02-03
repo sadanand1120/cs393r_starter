@@ -83,7 +83,7 @@ Navigation::Navigation(const string& map_name, ros::NodeHandle* n) :
   InitRosHeader("base_link", &drive_msg_.header);
 }
 
-void Navigation::MinimumDistanceToObstacle(const vector<Vector2f>& cloud, double time, float curvature) {
+float Navigation::MinimumDistanceToObstacle(const vector<Vector2f>& cloud, double time, float curvature) {
   // Given an arc (expressed by the curvature parameter, and the car physical dimensions, compute the distance
   // that the car can travel from its current location to the obstacle.
   float car_length = 0.535; // [meters]
@@ -96,7 +96,18 @@ void Navigation::MinimumDistanceToObstacle(const vector<Vector2f>& cloud, double
   // located at (0, 1/c)
   // TODO: NOTE: Need to take care of case where curvature is 0.0
 
-  if(curvature != 0.0)
+  if(curvature == 0.0) {
+    // Filter for points that are immediately in front of the car:
+    float closest_x = 1000.0;
+    for(Vector2f point : cloud) {
+      float y0 = point.y();
+      float x0 = point.x();
+      if(y0 <= car_width /2.0 && y0 >= -car_width/2.0 && x0 >= car_length - offset) {
+        closest_x = std::min(closest_x, x0);
+      }
+    } 
+    return closest_x - car_length + offset;
+  } else { // curvature != 0.0
 
   Vector2f center_of_turning(0.0, 1.0/curvature);
   float origin_to_left = 1.0/curvature - car_width / 2.0;
@@ -260,7 +271,8 @@ void Navigation::MinimumDistanceToObstacle(const vector<Vector2f>& cloud, double
   }
 
   float smallest_angle = std::min(std::min(left_smallest, right_smallest), front_smallest);
-  return smallest_angle;
+  return Navigation::calc_arc_length(curvature, smallest_angle);
+  }
 }
 
 void Navigation::FilterSectorRight(const Vector2f& reference, const vector<Vector2f>& cloud, float y_val, float max_dist, vector<Vector2f>& bucket) {
