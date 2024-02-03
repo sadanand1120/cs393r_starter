@@ -124,33 +124,33 @@ void Navigation::ObservePointCloud(const vector<Vector2f>& cloud,
 }
 
 bool Navigation::check_is_backward(){
-	// Rotate robot's velocity (which is in map frame) into base link frame
-	// based off of robot's orientation
-	Eigen::Rotation2Df r(robot_angle_); // TODO: Check that this is the correct units
-	Eigen::Vector2f base_link_vel = r * robot_vel_;
-
 	// Now check whether base link velocity is positive in x (i.e. forward)
-	return base_link_vel.x() >= 0;
+	cout << "Robot X Vel: " << robot_vel_.x() << endl;
+	cout << "Robot Y Vel: " << robot_vel_.y() << endl;
+	return robot_vel_.x() < 0;
 }
 
 double Navigation::get_abs_val_velocity(double arc_length){
 	double cur_vel_abs_val = sqrt(robot_vel_.x()*robot_vel_.x() + robot_vel_.y()*robot_vel_.y());
 
       	bool is_backward = Navigation::check_is_backward();
-	if (is_backward){
-		cur_vel_abs_val *= -1;
-	}	
+
+	cout << "Vel Abs Val: " << cur_vel_abs_val << endl;
+	cout << is_backward << endl;
 
 	if (arc_length <= cur_vel_abs_val / (2 * max_accel)){
 		// Decelerate
 		if (is_backward){
-			return cur_vel_abs_val + (max_accel * time_interval);
+			cout << "Backwards Decelerating" << endl;
+			return (-1 * cur_vel_abs_val) + (max_accel * time_interval);
 		} else {
+			cout << "Forward Decelerating" << endl;
 			return cur_vel_abs_val - (max_accel * time_interval);
 		}
 	} else {
-		if (cur_vel_abs_val == max_vel){
+		if (cur_vel_abs_val >= max_vel){
 			// Maintain
+			cout << "Maintaining (Default)" << endl;
 			return max_vel;
 		} else {
 			// Find if we can accelerate safely here
@@ -161,12 +161,15 @@ double Navigation::get_abs_val_velocity(double arc_length){
 
 			if (temp_next_arc_length <= temp_next_vel / (2 * max_accel)){
 				// Unsafe to accelerate
+				cout << "Maintaining (Safety)" << endl;
 				return cur_vel_abs_val;
 			} else {
 				// Can accelerate safely here
 				if (is_backward){
-					return cur_vel_abs_val - (max_accel * time_interval);
+					cout << "Backwards Accelerating" << endl;
+					return (-1 * cur_vel_abs_val) - (max_accel * time_interval);
 				} else {
+					cout << "Forward Accelerating" << endl;
 					return cur_vel_abs_val + (max_accel * time_interval);
 				}
 			}
@@ -174,6 +177,7 @@ double Navigation::get_abs_val_velocity(double arc_length){
 	}
 
 	// Default case, shouldn't reach
+	cout << "BAD RETURN" << endl;
 	return 0.0;
 }
 
@@ -196,7 +200,7 @@ void Navigation::Run() {
 
   // TODO: REMOVE THESE TEMP VALUES
   double arc_length = 5;
-  double curvature = 1 / 5;
+  double curvature = -1 / 1.05;
 
   double velocity = Navigation::get_abs_val_velocity(arc_length);
   drive_msg_.curvature = curvature;
