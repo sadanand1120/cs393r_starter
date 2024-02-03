@@ -66,6 +66,10 @@ class Navigation {
   // or backwards in its base link frame
   bool check_is_backward();
 
+  // This functions calculates the arc length given a curvature vaule
+  // and maximum angle along that curvature
+  double calc_arc_length(double curvature, double angle);
+
   // This function returns the absolute value of the velocity 
   double get_abs_val_velocity(double arc_length);
 

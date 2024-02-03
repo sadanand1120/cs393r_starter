@@ -181,6 +181,10 @@ double Navigation::get_abs_val_velocity(double arc_length){
 	return 0.0;
 }
 
+double Navigation::calc_arc_length(double curvature, double angle){
+	return angle / curvature;
+}
+
 void Navigation::Run() {
   // This function gets called 20 times a second to form the control loop.
   
