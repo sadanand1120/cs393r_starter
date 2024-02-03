@@ -78,6 +78,21 @@ class Navigation {
   // Used to set the next target pose.
   void SetNavGoal(const Eigen::Vector2f& loc, float angle);
 
+  void FilterSectorRight(const Eigen::Vector2f& reference, 
+                         const std::vector<Eigen::Vector2f>& cloud,
+                         float y_val, float max_dist, 
+                         std::vector<Eigen::Vector2f>& bucket);
+  void FilterSectorLeft(const Eigen::Vector2f& reference,
+                        const std::vector<Eigen::Vector2f>& cloud,
+                        float y_val, float max_dist, 
+                        std::vector<Eigen::Vector2f>& bucket);
+  void FilterDistances(const Eigen::Vector2f& reference,
+                       const std::vector<Eigen::Vector2f>& cloud,
+                       float min_dist, float max_dist, 
+                       std::vector<Eigen::Vector2f>& bucket);
+  float MinimumDistanceToObstacle(const std::vector<Eigen::Vector2f>& cloud, 
+                                  double time, float curvature);
+
  private:
 
   // Whether odometry has been initialized.
