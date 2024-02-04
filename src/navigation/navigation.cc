@@ -93,7 +93,7 @@ Navigation::Navigation(const string& map_name, ros::NodeHandle* n) :
   InitRosHeader("base_link", &drive_msg_.header);
 }
 
-float Navigation::MinimumDistanceToObstacle(const vector<Vector2f>& cloud, double time, float curvature) {
+double Navigation::MinimumDistanceToObstacle(const vector<Vector2f>& cloud, double curvature) {
   // Given an arc (expressed by the curvature parameter, and the car physical dimensions, compute the distance
   // that the car can travel from its current location to the obstacle.
   float car_length = 0.535; // [meters]
@@ -109,9 +109,11 @@ float Navigation::MinimumDistanceToObstacle(const vector<Vector2f>& cloud, doubl
   if(curvature == 0.0) {
     // Filter for points that are immediately in front of the car:
     float closest_x = 1000.0;
+    cout << "here" << cloud.size() << endl;
     for(Vector2f point : cloud) {
       float y0 = point.y();
       float x0 = point.x();
+      cout << "Point X: " << point.x() << "  Point Y: "  << point.y() << endl;
       if(y0 <= car_width /2.0 && y0 >= -car_width/2.0 && x0 >= car_length - offset) {
         closest_x = std::min(closest_x, x0);
       }
@@ -448,8 +450,14 @@ void Navigation::Run() {
   // Based on selected curvature (and thus arc lenght), get potential velocity value
 
   // TODO: REMOVE THESE TEMP VALUES
-  double arc_length = 5;
-  double curvature = -1 / 1.05;
+  double curvature = 0;
+
+  // TODO: Transform point cloud to baselink frame.
+  //Navigation::TransformPointCloudToBaseLink(point_cloud_, offset);
+
+  double arc_length = Navigation::MinimumDistanceToObstacle(point_cloud_, curvature);
+
+  cout << "Arc Length: " << arc_length << endl;
 
   double velocity = Navigation::get_abs_val_velocity(arc_length);
   drive_msg_.curvature = curvature;

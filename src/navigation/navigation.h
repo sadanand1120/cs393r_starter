@@ -90,8 +90,8 @@ class Navigation {
                        const std::vector<Eigen::Vector2f>& cloud,
                        float min_dist, float max_dist, 
                        std::vector<Eigen::Vector2f>& bucket);
-  float MinimumDistanceToObstacle(const std::vector<Eigen::Vector2f>& cloud, 
-                                  double time, float curvature);
+  double MinimumDistanceToObstacle(const std::vector<Eigen::Vector2f>& cloud, 
+                                  double curvature);
 
  private:
 
