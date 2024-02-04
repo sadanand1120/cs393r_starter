@@ -24,6 +24,7 @@
 #include "eigen3/Eigen/Dense"
 
 #include "vector_map/vector_map.h"
+#include <deque>
 
 #ifndef NAVIGATION_H
 #define NAVIGATION_H
@@ -41,6 +42,12 @@ struct PathOption {
   Eigen::Vector2f obstruction;
   Eigen::Vector2f closest_point;
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
+};
+
+struct Controls{
+	ros::Time time;
+        double curvature;
+        double velocity;
 };
 
 class Navigation {
@@ -65,6 +72,9 @@ class Navigation {
   // This function evaluates whether the robot is moving forward
   // or backwards in its base link frame
   bool check_is_backward();
+
+  // Forward predicts the lidar from previous actions
+  std::vector<Eigen::Vector2f> forward_predict_cloud(const std::vector<Eigen::Vector2f> cloud, std::deque<Controls> controls);
 
   // This functions calculates the arc length given a curvature vaule
   // and maximum angle along that curvature
@@ -126,6 +136,9 @@ class Navigation {
   float nav_goal_angle_;
   // Map of the environment.
   vector_map::VectorMap map_;
+
+  // Setup control latency queue
+  std::deque<Controls> controls;
 };
 
 }  // namespace navigation

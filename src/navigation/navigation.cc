@@ -34,6 +34,7 @@
 #include "shared/ros/ros_helpers.h"
 #include "navigation.h"
 #include "visualization/visualization.h"
+#include <deque>
 
 using Eigen::Vector2f;
 using amrl_msgs::AckermannCurvatureDriveMsg;
@@ -61,7 +62,8 @@ const float kEpsilon = 1e-5;
 
 const float max_accel = 4;
 const float max_vel = 1;
-const float time_interval = 0.001; // TODO: Get an actual value for this?
+const float time_interval = 0.10; // TODO: Get an actual value for this?
+ros::Duration actuation_latency(0.15); // TODO: get an actual value for this
 
 } //namespace
 
@@ -91,6 +93,8 @@ Navigation::Navigation(const string& map_name, ros::NodeHandle* n) :
   global_viz_msg_ = visualization::NewVisualizationMessage(
       "map", "navigation_global");
   InitRosHeader("base_link", &drive_msg_.header);
+
+  controls = std::deque<Controls>();
 }
 
 double Navigation::MinimumDistanceToObstacle(const vector<Vector2f>& cloud, double curvature) {
@@ -369,6 +373,46 @@ void Navigation::ObservePointCloud(const vector<Vector2f>& cloud,
   point_cloud_ = cloud;                                     
 }
 
+vector<Vector2f> Navigation::forward_predict_cloud(const vector<Vector2f> cloud, std::deque<Controls> controls){
+	Vector2f new_pose = Vector2f(0.0, 0.0);
+	double angular_change = 0;
+	for (Controls i: controls){
+		//Apply control on robot loc and get location for next time step
+
+		if (i.curvature == 0){
+			// Only need to update x pose in base link frame
+			new_pose.x() += i.velocity * time_interval; //TODO: What is the actual duration here?
+		} else {
+			angular_change += i.curvature * i.velocity * time_interval; //TODO: What is the actual duration here?
+
+			// Center of turning
+			Eigen::Vector2f center_of_turning = Vector2f(0, 1/i.curvature);
+
+			// New pose in base link frame
+			Eigen::Rotation2Df r(angular_change);
+			Vector2f new_pose = r * (-1 * center_of_turning);
+
+			// New pose in map frame
+			new_pose += new_pose;
+		}
+	}
+
+	// Calculate lidar estimate relative to new pose
+	vector<Vector2f> new_cloud = vector<Vector2f>();
+	for (Vector2f point : cloud){
+		// Apply rotation
+		Eigen::Rotation2Df r(angular_change);
+		Vector2f new_point = r * point;
+
+		// Apply translation
+		new_point = new_point + new_pose;
+
+		new_cloud.push_back(new_point);
+	}
+
+	return new_cloud;
+}
+
 bool Navigation::check_is_backward(){
 	// Now check whether base link velocity is positive in x (i.e. forward)
 	cout << "Robot X Vel: " << robot_vel_.x() << endl;
@@ -441,6 +485,16 @@ void Navigation::Run() {
   // If odometry has not been initialized, we can't do anything.
   if (!odom_initialized_) return;
 
+  // Forward predict point_cloud_ and pop top of queue that is too old
+  while (!controls.empty()){
+	if (!controls.empty() && ((ros::Time::now() - controls.front().time) > actuation_latency)){
+  		controls.pop_front();
+	} else {
+		break;
+	}
+  }
+  vector<Vector2f> new_cloud = Navigation::forward_predict_cloud(point_cloud_, controls);
+
   // The control iteration goes here. 
   // Feel free to make helper functions to structure the control appropriately.
   
@@ -454,13 +508,19 @@ void Navigation::Run() {
   // TODO: Transform point cloud to baselink frame.
   //Navigation::TransformPointCloudToBaseLink(point_cloud_, offset);
 
-  double arc_length = Navigation::MinimumDistanceToObstacle(point_cloud_, curvature);
+  double arc_length = Navigation::MinimumDistanceToObstacle(new_cloud, curvature);
 
   cout << "Arc Length: " << arc_length << endl;
 
   double velocity = Navigation::get_abs_val_velocity(arc_length);
   drive_msg_.curvature = curvature;
+  cout << "Sending Velocity: " << velocity << endl;
+  cout << "Queue Size: " << controls.size() << endl;
   drive_msg_.velocity = velocity;
+
+  Controls cur_control = {.time = ros::Time::now(), .curvature = curvature, .velocity = velocity };
+
+  controls.push_back(cur_control);
 
   // Add timestamps to all messages.
   local_viz_msg_.header.stamp = ros::Time::now();
