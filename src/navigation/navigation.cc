@@ -113,7 +113,6 @@ double Navigation::MinimumDistanceToObstacle(const vector<Vector2f>& cloud, doub
     for(Vector2f point : cloud) {
       float y0 = point.y();
       float x0 = point.x();
-      cout << "Point X: " << point.x() << "  Point Y: "  << point.y() << endl;
       if(y0 <= car_width /2.0 && y0 >= -car_width/2.0 && x0 >= car_length - offset) {
         closest_x = std::min(closest_x, x0);
       }
