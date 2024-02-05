@@ -63,7 +63,7 @@ const float kEpsilon = 1e-5;
 const float max_accel = 4;
 const float max_vel = 1;
 double time_interval = 0.1; // TODO: Get an actual value for this?
-double actuation_latency = 0.15; // TODO: get an actual value for this
+double actuation_latency = 0.3; // TODO: get an actual value for this
 
 } //namespace
 
@@ -100,11 +100,16 @@ Navigation::Navigation(const string& map_name, ros::NodeHandle* n) :
 double Navigation::MinimumDistanceToObstacle(const vector<Vector2f>& cloud, double curvature) {
   // Given an arc (expressed by the curvature parameter, and the car physical dimensions, compute the distance
   // that the car can travel from its current location to the obstacle.
-  float car_length = 0.535; // [meters]
-  float car_width = 0.281;  // [meters]
+  float actual_car_length = 0.535; // [meters]
+  float length_margin = 0.05;
+  float car_length = actual_car_length + length_margin;
+  float actual_car_width = 0.281;  // [meters]
+  float width_margin = 0.05;
+  float car_width = actual_car_width + width_margin;
   //float wheel_base = 0.324; // [meters]
   //float max_curvature = 1.0;
-  float offset = 0.001; // meters <-- need to measure this
+  float actual_offset = 0.1; // meters <-- need to measure this
+  float offset = actual_offset + (length_margin / 2);
 
   // We work in the baselink frame of reference. In the base link frame of reference, the center of turning is
   // located at (0, 1/c)
@@ -379,7 +384,7 @@ vector<Vector2f> Navigation::forward_predict_cloud(const vector<Vector2f> cloud,
 	double angular_change = 0;
 	
 	// Update with odom
-	// new_pose = new_pose + (robot_vel_ * time_interval);
+	//new_pose = new_pose + (robot_vel_ * time_interval);
 
 	double last_time = 0.0;
 	for (Controls i: controls){
@@ -492,6 +497,7 @@ void Navigation::Run() {
   if (!odom_initialized_) return;
 
   // Forward predict point_cloud_ and pop top of queue that is too old
+  
   while (!controls.empty()){
 	if (!controls.empty() && ((obs_time - controls.front().time) > actuation_latency)){
   		controls.pop_front();
