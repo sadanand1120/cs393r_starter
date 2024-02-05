@@ -125,9 +125,20 @@ double Navigation::MinimumDistanceToObstacle(const vector<Vector2f>& cloud, doub
   } else { // curvature != 0.0
 
   Vector2f center_of_turning = Vector2f(0.0, 1.0/curvature);
-  float origin_to_left = 1.0/curvature - car_width / 2.0;
-  float origin_to_right = 1.0/curvature + car_width / 2.0;
+  
+  float origin_to_left = 0.0;
+  float origin_to_right = 0.0;
   float origin_to_front = car_length - offset;
+
+  if(curvature > 0) {
+    origin_to_left = 1.0/curvature - car_width / 2.0;
+    origin_to_right = 1.0/curvature + car_width / 2.0;
+    origin_to_front = car_length - offset;
+  } else { // Curvature < 0
+    origin_to_left = 1.0/curvature + car_width / 2.0;
+    origin_to_right = 1.0/curvature - car_width / 2.0;
+    origin_to_front = car_length - offset;
+  }
 
   //Vector2f rear_left = Vector2f(-offset, car_width / 2.0);
   //Vector2f front_left = Vector2f(car_length-offset, car_width / 2.0);
