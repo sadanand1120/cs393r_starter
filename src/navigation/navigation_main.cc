@@ -105,7 +105,10 @@ void LaserCallback(const sensor_msgs::LaserScan& msg) {
       point_cloud_.push_back( computed );
     }
     // Update theta_i for next cycle
-    theta_i += msg.angle_increment;
+    //cout << "Angle Inc: " << msg.angle_increment << endl;
+    //cout << "Angle Max: " << msg.angle_max << endl;
+    //cout << "Angle Min: " << msg.angle_min << endl;
+    theta_i -= msg.angle_increment;
   }
   navigation_->ObservePointCloud(point_cloud_, msg.header.stamp.toSec());
   last_laser_msg_ = msg;

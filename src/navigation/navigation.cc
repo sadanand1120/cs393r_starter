@@ -61,9 +61,9 @@ const float kEpsilon = 1e-5;
 */
 
 const float max_accel = 4;
-const float max_vel = 1;
+const float max_vel = 1.0;
 double time_interval = 0.1; // TODO: Get an actual value for this?
-double actuation_latency = 0.3; // TODO: get an actual value for this
+double actuation_latency = 0.15; // TODO: get an actual value for this
 
 } //namespace
 
@@ -385,7 +385,7 @@ void Navigation::UpdateOdometry(const Vector2f& loc,
 }
 
 void Navigation::ObservePointCloud(const vector<Vector2f>& cloud,
-                                   double time) {
+                                   double time) { 
   point_cloud_ = cloud;
   obs_time = time; 
 }
@@ -445,44 +445,45 @@ vector<Vector2f> Navigation::forward_predict_cloud(const vector<Vector2f> cloud,
 }
 
 double Navigation::get_velocity(double arc_length, double pred_vel){
-	// double cur_vel_abs_val = sqrt(pred_vel_.x()*pred_vel_.x() + pred_vel_.y()*pred_vel_.y());
-	double cur_vel_abs_val = abs(pred_vel);
+	cout << "Vel: " << pred_vel << endl;
 
-	cout << "Vel Abs Val: " << cur_vel_abs_val << endl;
-
-	if (arc_length <= cur_vel_abs_val / (2 * max_accel)){
+	if (arc_length <= abs(pred_vel)/ (2 * max_accel)){
 		// Decelerate
 		if (pred_vel < 0){
 			cout << "Backwards Decelerating" << endl;
-			return (-1 * cur_vel_abs_val) + (max_accel * time_interval);
+			return pred_vel + (max_accel * time_interval);
 		} else {
 			cout << "Forward Decelerating" << endl;
-			return cur_vel_abs_val - (max_accel * time_interval);
+			return pred_vel - (max_accel * time_interval);
 		}
 	} else {
-		if (cur_vel_abs_val >= max_vel){
+		if (abs(pred_vel) >= max_vel){
 			// Maintain
 			cout << "Maintaining (Default)" << endl;
-			return max_vel;
+			if (pred_vel < 0){
+				return -1 * max_vel;
+			} else {
+				return max_vel;
+			}
 		} else {
 			// Find if we can accelerate safely here
 			// by forward evaluation of constraints
 			
-			double temp_next_vel = cur_vel_abs_val + (max_accel * time_interval);
+			double temp_next_vel = abs(pred_vel) + (max_accel * time_interval);
 			double temp_next_arc_length = arc_length - (temp_next_vel * time_interval);
 
 			if (temp_next_arc_length <= temp_next_vel / (2 * max_accel)){
 				// Unsafe to accelerate
 				cout << "Maintaining (Safety)" << endl;
-				return cur_vel_abs_val;
+				return pred_vel;
 			} else {
 				// Can accelerate safely here
 				if (pred_vel < 0){
 					cout << "Backwards Accelerating" << endl;
-					return (-1 * cur_vel_abs_val) - (max_accel * time_interval);
+					return pred_vel - (max_accel * time_interval);
 				} else {
 					cout << "Forward Accelerating" << endl;
-					return cur_vel_abs_val + (max_accel * time_interval);
+					return pred_vel + (max_accel * time_interval);
 				}
 			}
 		}
@@ -516,7 +517,9 @@ void Navigation::Run() {
 		break;
 	}
   }
+  
   vector<Vector2f> new_cloud = Navigation::forward_predict_cloud(point_cloud_, controls);
+  //vector<Vector2f> new_cloud = point_cloud_;
 
   // The control iteration goes here. 
   // Feel free to make helper functions to structure the control appropriately.
@@ -526,7 +529,7 @@ void Navigation::Run() {
   // Based on selected curvature (and thus arc lenght), get potential velocity value
 
   // TODO: REMOVE THESE TEMP VALUES
-  double curvature = -0.5;
+  double curvature = -1;
 
   // TODO: Transform point cloud to baselink frame.
   //Navigation::TransformPointCloudToBaseLink(point_cloud_, offset);
