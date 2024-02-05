@@ -45,7 +45,7 @@ struct PathOption {
 };
 
 struct Controls{
-	ros::Time time;
+	double time;
         double curvature;
         double velocity;
 };
@@ -69,10 +69,6 @@ class Navigation {
   void ObservePointCloud(const std::vector<Eigen::Vector2f>& cloud,
                          double time);
 
-  // This function evaluates whether the robot is moving forward
-  // or backwards in its base link frame
-  bool check_is_backward();
-
   // Forward predicts the lidar from previous actions
   std::vector<Eigen::Vector2f> forward_predict_cloud(const std::vector<Eigen::Vector2f> cloud, std::deque<Controls> controls);
 
@@ -81,7 +77,7 @@ class Navigation {
   double calc_arc_length(double curvature, double angle);
 
   // This function returns the absolute value of the velocity 
-  double get_abs_val_velocity(double arc_length);
+  double get_velocity(double arc_length, double pred_vel);
 
   // Main function called continously from main
   void Run();
@@ -127,6 +123,7 @@ class Navigation {
   float odom_start_angle_;
   // Latest observed point cloud.
   std::vector<Eigen::Vector2f> point_cloud_;
+  double obs_time;
 
   // Whether navigation is complete.
   bool nav_complete_;

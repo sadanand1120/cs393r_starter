@@ -62,8 +62,8 @@ const float kEpsilon = 1e-5;
 
 const float max_accel = 4;
 const float max_vel = 1;
-const float time_interval = 0.10; // TODO: Get an actual value for this?
-ros::Duration actuation_latency(0.15); // TODO: get an actual value for this
+double time_interval = 0.1; // TODO: Get an actual value for this?
+double actuation_latency = 0.15; // TODO: get an actual value for this
 
 } //namespace
 
@@ -370,30 +370,45 @@ void Navigation::UpdateOdometry(const Vector2f& loc,
 
 void Navigation::ObservePointCloud(const vector<Vector2f>& cloud,
                                    double time) {
-  point_cloud_ = cloud;                                     
+  point_cloud_ = cloud;
+  obs_time = time; 
 }
 
 vector<Vector2f> Navigation::forward_predict_cloud(const vector<Vector2f> cloud, std::deque<Controls> controls){
 	Vector2f new_pose = Vector2f(0.0, 0.0);
 	double angular_change = 0;
+	
+	// Update with odom
+	// new_pose = new_pose + (robot_vel_ * time_interval);
+
+	double last_time = 0.0;
 	for (Controls i: controls){
+		if (last_time != 0.0){
+			time_interval = i.time - last_time;
+		}
+
+		last_time = i.time;
+
 		//Apply control on robot loc and get location for next time step
 
 		if (i.curvature == 0){
 			// Only need to update x pose in base link frame
 			new_pose.x() += i.velocity * time_interval; //TODO: What is the actual duration here?
 		} else {
-			angular_change += i.curvature * i.velocity * time_interval; //TODO: What is the actual duration here?
+			double cur_angular_change = i.curvature * i.velocity * time_interval; //TODO: What is the actual duration here?
+			angular_change += cur_angular_change; //TODO: What is the actual duration here?
 
 			// Center of turning
 			Eigen::Vector2f center_of_turning = Vector2f(0, 1/i.curvature);
 
 			// New pose in base link frame
-			Eigen::Rotation2Df r(angular_change);
-			Vector2f new_pose = r * (-1 * center_of_turning);
+			Eigen::Rotation2Df r(cur_angular_change);
+			Vector2f arc_trans_pose = r * (-1 * center_of_turning) + center_of_turning;
 
 			// New pose in map frame
-			new_pose += new_pose;
+			Eigen::Rotation2Df r_adj(angular_change);
+			Vector2f rotated_arc_trans_pose = r * arc_trans_pose;
+			new_pose += rotated_arc_trans_pose;
 		}
 	}
 
@@ -413,24 +428,15 @@ vector<Vector2f> Navigation::forward_predict_cloud(const vector<Vector2f> cloud,
 	return new_cloud;
 }
 
-bool Navigation::check_is_backward(){
-	// Now check whether base link velocity is positive in x (i.e. forward)
-	cout << "Robot X Vel: " << robot_vel_.x() << endl;
-	cout << "Robot Y Vel: " << robot_vel_.y() << endl;
-	return robot_vel_.x() < 0;
-}
-
-double Navigation::get_abs_val_velocity(double arc_length){
-	double cur_vel_abs_val = sqrt(robot_vel_.x()*robot_vel_.x() + robot_vel_.y()*robot_vel_.y());
-
-      	bool is_backward = Navigation::check_is_backward();
+double Navigation::get_velocity(double arc_length, double pred_vel){
+	// double cur_vel_abs_val = sqrt(pred_vel_.x()*pred_vel_.x() + pred_vel_.y()*pred_vel_.y());
+	double cur_vel_abs_val = abs(pred_vel);
 
 	cout << "Vel Abs Val: " << cur_vel_abs_val << endl;
-	cout << is_backward << endl;
 
 	if (arc_length <= cur_vel_abs_val / (2 * max_accel)){
 		// Decelerate
-		if (is_backward){
+		if (pred_vel < 0){
 			cout << "Backwards Decelerating" << endl;
 			return (-1 * cur_vel_abs_val) + (max_accel * time_interval);
 		} else {
@@ -455,7 +461,7 @@ double Navigation::get_abs_val_velocity(double arc_length){
 				return cur_vel_abs_val;
 			} else {
 				// Can accelerate safely here
-				if (is_backward){
+				if (pred_vel < 0){
 					cout << "Backwards Accelerating" << endl;
 					return (-1 * cur_vel_abs_val) - (max_accel * time_interval);
 				} else {
@@ -472,7 +478,7 @@ double Navigation::get_abs_val_velocity(double arc_length){
 }
 
 double Navigation::calc_arc_length(double curvature, double angle){
-	return angle / curvature;
+	return abs(angle / curvature);
 }
 
 void Navigation::Run() {
@@ -487,7 +493,7 @@ void Navigation::Run() {
 
   // Forward predict point_cloud_ and pop top of queue that is too old
   while (!controls.empty()){
-	if (!controls.empty() && ((ros::Time::now() - controls.front().time) > actuation_latency)){
+	if (!controls.empty() && ((obs_time - controls.front().time) > actuation_latency)){
   		controls.pop_front();
 	} else {
 		break;
@@ -503,7 +509,7 @@ void Navigation::Run() {
   // Based on selected curvature (and thus arc lenght), get potential velocity value
 
   // TODO: REMOVE THESE TEMP VALUES
-  double curvature = 0;
+  double curvature = -0.5;
 
   // TODO: Transform point cloud to baselink frame.
   //Navigation::TransformPointCloudToBaseLink(point_cloud_, offset);
@@ -512,13 +518,19 @@ void Navigation::Run() {
 
   cout << "Arc Length: " << arc_length << endl;
 
-  double velocity = Navigation::get_abs_val_velocity(arc_length);
+  double velocity = 0.0;
+  if (!controls.empty()) {
+  	velocity = Navigation::get_velocity(arc_length, controls.back().velocity);
+  } else { 
+  	velocity = Navigation::get_velocity(arc_length, 0.0);
+  } 
+
   drive_msg_.curvature = curvature;
   cout << "Sending Velocity: " << velocity << endl;
   cout << "Queue Size: " << controls.size() << endl;
   drive_msg_.velocity = velocity;
 
-  Controls cur_control = {.time = ros::Time::now(), .curvature = curvature, .velocity = velocity };
+  Controls cur_control = {.time = ros::Time::now().toSec(), .curvature = curvature, .velocity = velocity };
 
   controls.push_back(cur_control);
 
