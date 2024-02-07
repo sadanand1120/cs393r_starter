@@ -559,7 +559,7 @@ vector<PathOption> Navigation::GeneratePathOptions(const vector<Vector2f>& new_c
     option.free_path_length = Navigation::MinimumDistanceToObstacle(new_cloud, curvature);
 
     // get cpa on arc
-    float fwd_x_goal = 50.0;
+    float fwd_x_goal = 8.0;
     const Eigen::Vector2f nav_goal_loc_temp = Vector2f(fwd_x_goal, 0);
     Eigen::Vector2f closest_point =
         Navigation::CalculateClosestPointOnArc(robot_loc_, nav_goal_loc_temp, curvature, robot_angle_);
@@ -568,17 +568,11 @@ vector<PathOption> Navigation::GeneratePathOptions(const vector<Vector2f>& new_c
     Eigen::Vector2f endpoint =
         Navigation::CalculateArcEndpoint(robot_loc_, curvature, option.free_path_length, robot_angle_);
 
-    float cpa_dist = 0.0;
-
-    if (Navigation::IsEndpointAfterCPA(robot_loc_, closest_point, endpoint, curvature, option.free_path_length)) {
-      cpa_dist = (closest_point - nav_goal_loc_temp).norm();
-    } else {
-      cpa_dist = (endpoint - nav_goal_loc_temp).norm();
+    if (!Navigation::IsEndpointAfterCPA(robot_loc_, closest_point, endpoint, curvature, option.free_path_length)) {
+      closest_point = endpoint;
     }
 
-    option.score = option.free_path_length + w1 * (1 - abs(curvature)) + w2 * (fwd_x_goal - cpa_dist);
-    std::cout << "Curvature: " << curvature << " free_path_length: " << option.free_path_length
-              << " cpa_dist: " << cpa_dist << " score: " << option.score << std::endl;
+    option.score = option.free_path_length + w1 * (1 - abs(curvature)) + w2 * closest_point.x();
     path_options.push_back(option);
   }
   return path_options;
