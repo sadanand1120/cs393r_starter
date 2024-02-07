@@ -156,7 +156,7 @@ int main(int argc, char** argv) {
   signal(SIGINT, SignalHandler);
   // Initialize ROS.
   ros::init(argc, argv, "navigation", ros::init_options::NoSigintHandler);
-  ros::NodeHandle n;
+  ros::NodeHandle n;robot_loc
   navigation_ = new Navigation(FLAGS_map, &n);
 
   ros::Subscriber string_sub = n.subscribe("string_topic", 1, &StringCallback);

@@ -581,7 +581,7 @@ void Navigation::Run() {
   // Clear previous visualizations.
   visualization::ClearVisualizationMsg(local_viz_msg_);
   visualization::ClearVisualizationMsg(global_viz_msg_);
-  std::cout << "********************************* Robot's x: " << robot_loc_.x() << " y: " << robot_loc_.y() << " angle: " << robot_angle_ << std::endl;
+  std::cout << "********************************* Robot's x: " << odom_loc_.x() << " y: " << odom_loc_.y() << std::endl;
 
   // If odometry has not been initialized, we can't do anything.
   if (!odom_initialized_) return;
