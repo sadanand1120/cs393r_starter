@@ -206,6 +206,18 @@ double Navigation::MinimumDistanceToObstacle(const vector<Vector2f>& cloud, doub
       float cos_theta = delta.dot(p_val - center_of_turning) / 
         (geometry::GetNormOrZero(delta)*geometry::GetNormOrZero((p_diff)));
       float angle = std::acos(cos_theta);
+      // Check which side of the line the obstacle lies on
+      if(x_val < 0.0) {
+        if(y0 > (y_val-cinv)*x0/x_val + cinv) {
+          angle = 2*M_PI - angle;
+        }
+      } else if(x_val > 0.0) {
+        if(y0 < (y_val-cinv)*x0/x_val + cinv) {
+          angle = 2*M_PI - angle;
+        }
+      } else {
+          angle = M_PI;
+      }
       // keep shortest distance to the car
       left_smallest = std::min(angle, left_smallest);
     }
@@ -218,7 +230,13 @@ double Navigation::MinimumDistanceToObstacle(const vector<Vector2f>& cloud, doub
       float y0 = point.y();
       // Circle intersect with line segment solution
       float x_val = car_length-offset;
+      // NOTE that there are two solutions. The smaller one should have -w/2 < y < w/2, but we can test that assumption.
       float y_val = cinv - sqrt(Sq(x0) + Sq(y0-cinv) - Sq(x_val));
+      //float y_pos = cinv + sqrt(Sq(x0) + Sq(y0-cinv) - Sq(x_val));
+      //float y_val = neg;
+      //if(y_val <= car_width/2.0 && y_val >= -car_width/2.0) {
+      //  cout << "Valid value: "
+      //}
       Vector2f p_val = Vector2f(x_val, y_val);
       Vector2f p_diff = p_val - center_of_turning;
 
@@ -226,6 +244,11 @@ double Navigation::MinimumDistanceToObstacle(const vector<Vector2f>& cloud, doub
       float cos_theta = delta.dot(p_val - center_of_turning) / 
         (geometry::GetNormOrZero(delta)*geometry::GetNormOrZero(p_diff));
       float angle = std::acos(cos_theta);
+      // Check which side of the line the obstacle lies on
+      if(y0 < (y_val-cinv)/x_val + cinv) {
+        angle = 2*M_PI - angle;
+      }
+
       // keep shortest distance to the car
       front_smallest = std::min(angle, front_smallest);
     }
@@ -267,6 +290,9 @@ double Navigation::MinimumDistanceToObstacle(const vector<Vector2f>& cloud, doub
       float cos_theta = delta.dot(p_val - center_of_turning) / 
         (geometry::GetNormOrZero(delta)*geometry::GetNormOrZero(p_diff));
       float angle = std::acos(cos_theta);
+      if(y0 > (y_val-cinv)/x_val + cinv) {
+        angle = 2*M_PI - angle;
+      }
       // keep shortest distance to the car
       front_smallest = std::min(angle, front_smallest);
     }
@@ -287,6 +313,17 @@ double Navigation::MinimumDistanceToObstacle(const vector<Vector2f>& cloud, doub
       float cos_theta = delta.dot(p_val - center_of_turning) / 
         (geometry::GetNormOrZero(delta)*geometry::GetNormOrZero(p_diff));
       float angle = std::acos(cos_theta);
+      if(x_val < 0.0) {
+        if(y0 < (y_val-cinv)*x0/x_val + cinv) {
+          angle = 2*M_PI - angle;
+        }
+      } else if(x_val > 0.0) {
+        if(y0 > (y_val-cinv)*x0/x_val + cinv) {
+          angle = 2*M_PI - angle;
+        }
+      } else {
+          angle = M_PI;
+      }
       // keep shortest distance to the car
       right_smallest = std::min(angle, right_smallest);
     }
@@ -312,6 +349,7 @@ double Navigation::MinimumDistanceToObstacle(const vector<Vector2f>& cloud, doub
   }
 
   float smallest_angle = std::min(std::min(left_smallest, right_smallest), front_smallest);
+  cout << "All Angles: L: " << left_smallest << " R: " << right_smallest << "F: "<< front_smallest << endl;
   return Navigation::calc_arc_length(curvature, smallest_angle);
   }
 }
@@ -389,7 +427,8 @@ void Navigation::UpdateOdometry(const Vector2f& loc,
 }
 
 void Navigation::ObservePointCloud(const vector<Vector2f>& cloud,
-                                   double time) { 
+                                   double time) {
+  // A scan from the cloud, associated with the baselink frame at that time.
   point_cloud_ = cloud;
   obs_time = time; 
 }
