@@ -180,6 +180,10 @@ double Navigation::MinimumDistanceToObstacle(const vector<Vector2f>& cloud, doub
     Navigation::FilterSectorLeft(center_of_turning, cloud, rear_left_radius, front_left_radius, left_sweep);
   }
 
+  cout << "Left Sweep Size: " << left_sweep.size() << endl;
+  cout << "Right Sweep Size: " << right_sweep.size() << endl;
+  cout << "Front Sweep Size: " << front_sweep.size() << endl;
+
   // For each point in the bucket, determine the minimum arc distance from the point to the car
   float cinv = 1.0/curvature;
   float left_smallest = 2*M_PI;
@@ -402,7 +406,7 @@ vector<Vector2f> Navigation::forward_predict_cloud(const vector<Vector2f> cloud,
 		if (last_time != 0.0){
 			time_interval = i.time - last_time;
 		}
-
+		
 		last_time = i.time;
 
 		//Apply control on robot loc and get location for next time step
@@ -447,7 +451,7 @@ vector<Vector2f> Navigation::forward_predict_cloud(const vector<Vector2f> cloud,
 double Navigation::get_velocity(double arc_length, double pred_vel){
 	cout << "Vel: " << pred_vel << endl;
 
-	if (arc_length <= abs(pred_vel)/ (2 * max_accel)){
+	if (arc_length <= (abs(pred_vel) * abs(pred_vel))/ (2 * max_accel)){
 		// Decelerate
 		if (pred_vel < 0){
 			cout << "Backwards Decelerating" << endl;
@@ -472,7 +476,7 @@ double Navigation::get_velocity(double arc_length, double pred_vel){
 			double temp_next_vel = abs(pred_vel) + (max_accel * time_interval);
 			double temp_next_arc_length = arc_length - (temp_next_vel * time_interval);
 
-			if (temp_next_arc_length <= temp_next_vel / (2 * max_accel)){
+			if (temp_next_arc_length <= (temp_next_vel * temp_next_vel) / (2 * max_accel)){
 				// Unsafe to accelerate
 				cout << "Maintaining (Safety)" << endl;
 				return pred_vel;
@@ -518,8 +522,8 @@ void Navigation::Run() {
 	}
   }
   
-  vector<Vector2f> new_cloud = Navigation::forward_predict_cloud(point_cloud_, controls);
-  //vector<Vector2f> new_cloud = point_cloud_;
+  //vector<Vector2f> new_cloud = Navigation::forward_predict_cloud(point_cloud_, controls);
+  vector<Vector2f> new_cloud = point_cloud_;
 
   // The control iteration goes here. 
   // Feel free to make helper functions to structure the control appropriately.
@@ -529,7 +533,7 @@ void Navigation::Run() {
   // Based on selected curvature (and thus arc lenght), get potential velocity value
 
   // TODO: REMOVE THESE TEMP VALUES
-  double curvature = -1;
+  double curvature = 0.5;
 
   // TODO: Transform point cloud to baselink frame.
   //Navigation::TransformPointCloudToBaseLink(point_cloud_, offset);

@@ -85,7 +85,11 @@ void LaserCallback(const sensor_msgs::LaserScan& msg) {
   // Location of the laser on the robot. Assumes the laser is forward-facing.
   const Vector2f kLaserLoc(0.2, 0); //TODO: We need to measure this! Get the distance and angle.
 
-  static vector<Vector2f> point_cloud_;
+  // TODO: Should this only be the 1081 from the current lidar?
+  vector<Vector2f> point_cloud_;
+
+  cout << "Lidar msg size: " << msg.ranges.size() << endl;
+
   // TODO Convert the LaserScan to a point cloud
   // The LaserScan parameters are accessible as follows:
   // msg.angle_increment // Angular increment between subsequent rays
@@ -110,6 +114,8 @@ void LaserCallback(const sensor_msgs::LaserScan& msg) {
     //cout << "Angle Min: " << msg.angle_min << endl;
     theta_i -= msg.angle_increment;
   }
+  cout << "Point Cloud size: " << point_cloud_.size() << endl;
+  cout << "Min and max range: " << msg.range_min << " " << msg.range_max << endl;
   navigation_->ObservePointCloud(point_cloud_, msg.header.stamp.toSec());
   last_laser_msg_ = msg;
 }
