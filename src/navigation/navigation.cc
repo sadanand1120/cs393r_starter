@@ -559,7 +559,7 @@ vector<PathOption> Navigation::GeneratePathOptions(const vector<Vector2f>& new_c
     option.free_path_length = Navigation::MinimumDistanceToObstacle(new_cloud, curvature);
 
     // get cpa on arc
-    float fwd_x_goal = 5.0;
+    float fwd_x_goal = 50.0;
     const Eigen::Vector2f nav_goal_loc_temp = Vector2f(fwd_x_goal, 0);
     Eigen::Vector2f closest_point =
         Navigation::CalculateClosestPointOnArc(robot_loc_, nav_goal_loc_temp, curvature, robot_angle_);
@@ -577,6 +577,8 @@ vector<PathOption> Navigation::GeneratePathOptions(const vector<Vector2f>& new_c
     }
 
     option.score = option.free_path_length + w1 * (1 - abs(curvature)) + w2 * (fwd_x_goal - cpa_dist);
+    std::cout << "Curvature: " << curvature << " free_path_length: " << option.free_path_length
+              << " cpa_dist: " << cpa_dist << " score: " << option.score << std::endl;
     path_options.push_back(option);
   }
   return path_options;
