@@ -51,25 +51,23 @@
 #include "navigation.h"
 
 using amrl_msgs::Localization2DMsg;
+using Eigen::Vector2f;
 using math_util::DegToRad;
 using math_util::RadToDeg;
 using navigation::Navigation;
 using ros::Time;
-using ros_helpers::Eigen3DToRosPoint;
 using ros_helpers::Eigen2DToRosPoint;
+using ros_helpers::Eigen3DToRosPoint;
 using ros_helpers::RosPoint;
 using ros_helpers::SetRosVector;
 using std::string;
 using std::vector;
-using Eigen::Vector2f;
 
 // Create command line arguments
 DEFINE_string(laser_topic, "scan", "Name of ROS topic for LIDAR data");
 DEFINE_string(odom_topic, "odom", "Name of ROS topic for odometry data");
 DEFINE_string(loc_topic, "localization", "Name of ROS topic for localization");
-DEFINE_string(init_topic,
-              "initialpose",
-              "Name of ROS topic for initialization");
+DEFINE_string(init_topic, "initialpose", "Name of ROS topic for initialization");
 DEFINE_string(map, "GDC1", "Name of vector map file");
 
 bool run_ = true;
@@ -78,12 +76,10 @@ Navigation* navigation_ = nullptr;
 
 void LaserCallback(const sensor_msgs::LaserScan& msg) {
   if (FLAGS_v > 0) {
-    printf("Laser t=%f, dt=%f\n",
-           msg.header.stamp.toSec(),
-           GetWallTime() - msg.header.stamp.toSec());
+    printf("Laser t=%f, dt=%f\n", msg.header.stamp.toSec(), GetWallTime() - msg.header.stamp.toSec());
   }
   // Location of the laser on the robot. Assumes the laser is forward-facing.
-  const Vector2f kLaserLoc(0.21, 0); //TODO: We need to measure this! Get the distance and angle.
+  const Vector2f kLaserLoc(0.21, 0);  // TODO: We need to measure this! Get the distance and angle.
 
   // TODO: Should this only be the 1081 from the current lidar?
   vector<Vector2f> point_cloud_;
@@ -99,19 +95,20 @@ void LaserCallback(const sensor_msgs::LaserScan& msg) {
   // msg.range_min // Minimum observable range
   // msg.ranges[i] // The range of the i'th ray
   float theta_i = msg.angle_max;
-  float laser_angle = 0.0; // [radians]
+  float laser_angle = 0.0;  // [radians]
   for (size_t i = 0; i < msg.ranges.size(); ++i) {
     float r_i = msg.ranges[i];
     // Documention says that ranges below or above min max values should be ignored.
-    if(r_i >= msg.range_min && r_i <= msg.range_max) {
+    if (r_i >= msg.range_min && r_i <= msg.range_max) {
       // Point cloud in baselink frame
-      Vector2f computed = kLaserLoc + Vector2f(r_i*std::cos(theta_i + laser_angle), -r_i*std::sin(theta_i + laser_angle));
-      point_cloud_.push_back( computed );
+      Vector2f computed =
+          kLaserLoc + Vector2f(r_i * std::cos(theta_i + laser_angle), -r_i * std::sin(theta_i + laser_angle));
+      point_cloud_.push_back(computed);
     }
     // Update theta_i for next cycle
-    //cout << "Angle Inc: " << msg.angle_increment << endl;
-    //cout << "Angle Max: " << msg.angle_max << endl;
-    //cout << "Angle Min: " << msg.angle_min << endl;
+    // cout << "Angle Inc: " << msg.angle_increment << endl;
+    // cout << "Angle Max: " << msg.angle_max << endl;
+    // cout << "Angle Min: " << msg.angle_min << endl;
     theta_i -= msg.angle_increment;
   }
   cout << "Point Cloud size: " << point_cloud_.size() << endl;
@@ -124,17 +121,14 @@ void OdometryCallback(const nav_msgs::Odometry& msg) {
   if (FLAGS_v > 0) {
     printf("Odometry t=%f\n", msg.header.stamp.toSec());
   }
-  navigation_->UpdateOdometry(
-      Vector2f(msg.pose.pose.position.x, msg.pose.pose.position.y),
-      2.0 * atan2(msg.pose.pose.orientation.z, msg.pose.pose.orientation.w),
-      Vector2f(msg.twist.twist.linear.x, msg.twist.twist.linear.y),
-      msg.twist.twist.angular.z);
+  navigation_->UpdateOdometry(Vector2f(msg.pose.pose.position.x, msg.pose.pose.position.y),
+                              2.0 * atan2(msg.pose.pose.orientation.z, msg.pose.pose.orientation.w),
+                              Vector2f(msg.twist.twist.linear.x, msg.twist.twist.linear.y), msg.twist.twist.angular.z);
 }
 
 void GoToCallback(const geometry_msgs::PoseStamped& msg) {
   const Vector2f loc(msg.pose.position.x, msg.pose.position.y);
-  const float angle =
-      2.0 * atan2(msg.pose.orientation.z, msg.pose.orientation.w);
+  const float angle = 2.0 * atan2(msg.pose.orientation.z, msg.pose.orientation.w);
   printf("Goal: (%f,%f) %f\u00b0\n", loc.x(), loc.y(), angle);
   navigation_->SetNavGoal(loc, angle);
 }
@@ -155,9 +149,7 @@ void LocalizationCallback(const amrl_msgs::Localization2DMsg msg) {
   navigation_->UpdateLocation(Vector2f(msg.pose.x, msg.pose.y), msg.pose.theta);
 }
 
-void StringCallback(const std_msgs::String& msg) {
-  std::cout << msg.data << "\n";
-}
+void StringCallback(const std_msgs::String& msg) { std::cout << msg.data << "\n"; }
 
 int main(int argc, char** argv) {
   google::ParseCommandLineFlags(&argc, &argv, false);
@@ -167,17 +159,12 @@ int main(int argc, char** argv) {
   ros::NodeHandle n;
   navigation_ = new Navigation(FLAGS_map, &n);
 
-  ros::Subscriber string_sub = 
-      n.subscribe("string_topic", 1, &StringCallback);
+  ros::Subscriber string_sub = n.subscribe("string_topic", 1, &StringCallback);
 
-  ros::Subscriber velocity_sub =
-      n.subscribe(FLAGS_odom_topic, 1, &OdometryCallback);
-  ros::Subscriber localization_sub =
-      n.subscribe(FLAGS_loc_topic, 1, &LocalizationCallback);
-  ros::Subscriber laser_sub =
-      n.subscribe(FLAGS_laser_topic, 1, &LaserCallback);
-  ros::Subscriber goto_sub =
-      n.subscribe("/move_base_simple/goal", 1, &GoToCallback);
+  ros::Subscriber velocity_sub = n.subscribe(FLAGS_odom_topic, 1, &OdometryCallback);
+  ros::Subscriber localization_sub = n.subscribe(FLAGS_loc_topic, 1, &LocalizationCallback);
+  ros::Subscriber laser_sub = n.subscribe(FLAGS_laser_topic, 1, &LaserCallback);
+  ros::Subscriber goto_sub = n.subscribe("/move_base_simple/goal", 1, &GoToCallback);
 
   RateLoop loop(20.0);
   while (run_ && ros::ok()) {

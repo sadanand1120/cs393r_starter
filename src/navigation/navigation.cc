@@ -36,12 +36,12 @@
 #include "visualization/visualization.h"
 #include <deque>
 
-using Eigen::Vector2f;
 using amrl_msgs::AckermannCurvatureDriveMsg;
 using amrl_msgs::VisualizationMsg;
+using Eigen::Vector2f;
+using std::sqrt;
 using std::string;
 using std::vector;
-using std::sqrt;
 
 using namespace math_util;
 using namespace ros_helpers;
@@ -58,14 +58,14 @@ const float kEpsilon = 1e-5;
 /* ********** *
  * PARAMETERS *
  * ********** *
-*/
+ */
 
 const float max_accel = 4;
 const float max_vel = 1.0;
-double time_interval = 0.1; // TODO: Get an actual value for this?
-double actuation_latency = 0.2; // TODO: get an actual value for this
+double time_interval = 0.1;      // TODO: Get an actual value for this?
+double actuation_latency = 0.2;  // TODO: get an actual value for this
 
-} //namespace
+}  // namespace
 
 namespace navigation {
 
@@ -74,24 +74,21 @@ string GetMapFileFromName(const string& map) {
   return maps_dir_ + "/" + map + "/" + map + ".vectormap.txt";
 }
 
-Navigation::Navigation(const string& map_name, ros::NodeHandle* n) :
-    odom_initialized_(false),
-    localization_initialized_(false),
-    robot_loc_(0, 0),
-    robot_angle_(0),
-    robot_vel_(0, 0),
-    robot_omega_(0),
-    nav_complete_(true),
-    nav_goal_loc_(0, 0),
-    nav_goal_angle_(0) {
+Navigation::Navigation(const string& map_name, ros::NodeHandle* n)
+    : odom_initialized_(false),
+      localization_initialized_(false),
+      robot_loc_(0, 0),
+      robot_angle_(0),
+      robot_vel_(0, 0),
+      robot_omega_(0),
+      nav_complete_(true),
+      nav_goal_loc_(0, 0),
+      nav_goal_angle_(0) {
   map_.Load(GetMapFileFromName(map_name));
-  drive_pub_ = n->advertise<AckermannCurvatureDriveMsg>(
-      "ackermann_curvature_drive", 1);
+  drive_pub_ = n->advertise<AckermannCurvatureDriveMsg>("ackermann_curvature_drive", 1);
   viz_pub_ = n->advertise<VisualizationMsg>("visualization", 1);
-  local_viz_msg_ = visualization::NewVisualizationMessage(
-      "base_link", "navigation_local");
-  global_viz_msg_ = visualization::NewVisualizationMessage(
-      "map", "navigation_global");
+  local_viz_msg_ = visualization::NewVisualizationMessage("base_link", "navigation_local");
+  global_viz_msg_ = visualization::NewVisualizationMessage("map", "navigation_global");
   InitRosHeader("base_link", &drive_msg_.header);
 
   controls = std::deque<Controls>();
@@ -100,272 +97,274 @@ Navigation::Navigation(const string& map_name, ros::NodeHandle* n) :
 double Navigation::MinimumDistanceToObstacle(const vector<Vector2f>& cloud, double curvature) {
   // Given an arc (expressed by the curvature parameter, and the car physical dimensions, compute the distance
   // that the car can travel from its current location to the obstacle.
-  float actual_car_length = 0.535; // [meters]
+  float actual_car_length = 0.535;  // [meters]
   float length_margin = 0.1;
   float car_length = actual_car_length + length_margin;
   float actual_car_width = 0.281;  // [meters]
   float width_margin = 0.1;
   float car_width = actual_car_width + width_margin;
-  //float wheel_base = 0.324; // [meters]
-  //float max_curvature = 1.0;
-  float actual_offset = 0.09; // meters <-- need to measure this
+  // float wheel_base = 0.324; // [meters]
+  // float max_curvature = 1.0;
+  float actual_offset = 0.09;  // meters <-- need to measure this
   float offset = actual_offset + (length_margin / 2);
 
   // We work in the baselink frame of reference. In the base link frame of reference, the center of turning is
   // located at (0, 1/c)
   // TODO: NOTE: Need to take care of case where curvature is 0.0
 
-  if(curvature == 0.0) {
+  if (curvature == 0.0) {
     // Filter for points that are immediately in front of the car:
     float closest_x = 1000.0;
     cout << "here" << cloud.size() << endl;
-    for(Vector2f point : cloud) {
+    for (Vector2f point : cloud) {
       float y0 = point.y();
       float x0 = point.x();
-      if(y0 <= car_width /2.0 && y0 >= -car_width/2.0 && x0 >= actual_car_length - offset) {
+      if (y0 <= car_width / 2.0 && y0 >= -car_width / 2.0 && x0 >= actual_car_length - offset) {
         closest_x = std::min(closest_x, x0);
       }
-    } 
+    }
     return closest_x - car_length + offset;
-  } else { // curvature != 0.0
+  } else {  // curvature != 0.0
 
-  Vector2f center_of_turning = Vector2f(0.0, 1.0/curvature);
-  
-  float origin_to_left = 0.0;
-  float origin_to_right = 0.0;
-  float origin_to_front = car_length - offset;
+    Vector2f center_of_turning = Vector2f(0.0, 1.0 / curvature);
 
-  if(curvature > 0) {
-    origin_to_left = 1.0/curvature - car_width / 2.0;
-    origin_to_right = 1.0/curvature + car_width / 2.0;
-    origin_to_front = car_length - offset;
-  } else { // Curvature < 0
-    origin_to_left = -1.0/curvature + car_width / 2.0;
-    origin_to_right = -1.0/curvature - car_width / 2.0;
-    origin_to_front = car_length - offset;
-  }
+    float origin_to_left = 0.0;
+    float origin_to_right = 0.0;
+    float origin_to_front = car_length - offset;
 
-  //Vector2f rear_left = Vector2f(-offset, car_width / 2.0);
-  //Vector2f front_left = Vector2f(car_length-offset, car_width / 2.0);
-  //Vector2f rear_right = Vector2f(-offset, -car_width / 2.0);
-  //Vector2f front_right = Vector2f(car_length-offset, -car_width / 2.0);
+    if (curvature > 0) {
+      origin_to_left = 1.0 / curvature - car_width / 2.0;
+      origin_to_right = 1.0 / curvature + car_width / 2.0;
+      origin_to_front = car_length - offset;
+    } else {  // Curvature < 0
+      origin_to_left = -1.0 / curvature + car_width / 2.0;
+      origin_to_right = -1.0 / curvature - car_width / 2.0;
+      origin_to_front = car_length - offset;
+    }
 
-  float rear_left_radius = sqrt(offset * offset + origin_to_left * origin_to_left);
-  float rear_right_radius = sqrt(offset * offset + origin_to_right * origin_to_right);
-  float front_left_radius = sqrt(origin_to_front * origin_to_front + origin_to_left * origin_to_left);
-  float front_right_radius = sqrt(origin_to_front * origin_to_front + origin_to_right * origin_to_right);
+    // Vector2f rear_left = Vector2f(-offset, car_width / 2.0);
+    // Vector2f front_left = Vector2f(car_length-offset, car_width / 2.0);
+    // Vector2f rear_right = Vector2f(-offset, -car_width / 2.0);
+    // Vector2f front_right = Vector2f(car_length-offset, -car_width / 2.0);
 
-  // The shortest radius is rear_left; the longest is rear right
-  // We can filter into regions: obstacles that would hit the left side of the car; obstacles that would hit
-  // the right side of the car
-  cout << "Curvature is : " << curvature << endl;
-  cout << "Rear Right Radius:" << rear_right_radius << endl;
-  cout << "Rear Left Radius:" << rear_left_radius << endl;
-  cout << "Front Right Radius:" << front_right_radius << endl;
-  cout << "Front Left Radius:" << front_left_radius << endl;
+    float rear_left_radius = sqrt(offset * offset + origin_to_left * origin_to_left);
+    float rear_right_radius = sqrt(offset * offset + origin_to_right * origin_to_right);
+    float front_left_radius = sqrt(origin_to_front * origin_to_front + origin_to_left * origin_to_left);
+    float front_right_radius = sqrt(origin_to_front * origin_to_front + origin_to_right * origin_to_right);
 
-  vector<Vector2f> left_sweep = vector<Vector2f>();
-  vector<Vector2f> front_sweep = vector<Vector2f>();
-  vector<Vector2f> right_sweep = vector<Vector2f>();
+    // The shortest radius is rear_left; the longest is rear right
+    // We can filter into regions: obstacles that would hit the left side of the car; obstacles that would hit
+    // the right side of the car
+    cout << "Curvature is : " << curvature << endl;
+    cout << "Rear Right Radius:" << rear_right_radius << endl;
+    cout << "Rear Left Radius:" << rear_left_radius << endl;
+    cout << "Front Right Radius:" << front_right_radius << endl;
+    cout << "Front Left Radius:" << front_left_radius << endl;
 
-  // Put the point cloud points into buckets based on where in the swept region they lie.
-  if(curvature > 0) {
-    // Left side of car
-    Navigation::FilterDistances(center_of_turning, cloud, rear_left_radius, front_left_radius, left_sweep);
-    // Front side of car
-    Navigation::FilterDistances(center_of_turning, cloud, front_left_radius, front_right_radius, front_sweep);
-    // Right side of car
-    Navigation::FilterSectorRight(center_of_turning, cloud, -car_width/2.0, rear_right_radius, right_sweep);
-  } else { // curvature is negative
-    // Right side of car
-    Navigation::FilterDistances(center_of_turning, cloud, rear_right_radius, front_right_radius, right_sweep);
-    // Front side of car
-    Navigation::FilterDistances(center_of_turning, cloud, front_right_radius, front_left_radius, front_sweep);
-    // Left side of car
-    Navigation::FilterSectorLeft(center_of_turning, cloud, car_width/2.0, rear_left_radius, left_sweep);
-  }
+    vector<Vector2f> left_sweep = vector<Vector2f>();
+    vector<Vector2f> front_sweep = vector<Vector2f>();
+    vector<Vector2f> right_sweep = vector<Vector2f>();
 
-  cout << "Left Sweep Size: " << left_sweep.size() << endl;
-  cout << "Right Sweep Size: " << right_sweep.size() << endl;
-  cout << "Front Sweep Size: " << front_sweep.size() << endl;
+    // Put the point cloud points into buckets based on where in the swept region they lie.
+    if (curvature > 0) {
+      // Left side of car
+      Navigation::FilterDistances(center_of_turning, cloud, rear_left_radius, front_left_radius, left_sweep);
+      // Front side of car
+      Navigation::FilterDistances(center_of_turning, cloud, front_left_radius, front_right_radius, front_sweep);
+      // Right side of car
+      Navigation::FilterSectorRight(center_of_turning, cloud, -car_width / 2.0, rear_right_radius, right_sweep);
+    } else {  // curvature is negative
+      // Right side of car
+      Navigation::FilterDistances(center_of_turning, cloud, rear_right_radius, front_right_radius, right_sweep);
+      // Front side of car
+      Navigation::FilterDistances(center_of_turning, cloud, front_right_radius, front_left_radius, front_sweep);
+      // Left side of car
+      Navigation::FilterSectorLeft(center_of_turning, cloud, car_width / 2.0, rear_left_radius, left_sweep);
+    }
 
-  // For each point in the bucket, determine the minimum arc distance from the point to the car
-  float cinv = 1.0/curvature;
-  float left_smallest = 2*M_PI;
-  float front_smallest = 2*M_PI;
-  float right_smallest = 2*M_PI;
-  if(curvature > 0) {
-    // Distance angle of points to LEFT side of the car
-    for(Vector2f point : left_sweep) {
-      Vector2f delta = point - center_of_turning;
-      // Point cloud point
-      float x0 = point.x();
-      float y0 = point.y();
-      // Circle intersect with line segment solution
-      float y_val = car_width/2.0;
-      float x_val = sqrt(Sq(x0) + Sq(y0-cinv) - Sq(car_width/2.0 - cinv));
-      Vector2f p_val = Vector2f(x_val, y_val);
-      Vector2f p_diff = p_val - center_of_turning;
+    cout << "Left Sweep Size: " << left_sweep.size() << endl;
+    cout << "Right Sweep Size: " << right_sweep.size() << endl;
+    cout << "Front Sweep Size: " << front_sweep.size() << endl;
 
-      // Compute a dot b = |a||b|cos\theta --> \theta = Arccos(a dot b / (|a||b|))
-      float cos_theta = delta.dot(p_val - center_of_turning) / 
-        (geometry::GetNormOrZero(delta)*geometry::GetNormOrZero((p_diff)));
-      float angle = std::acos(cos_theta);
-      // Check which side of the line the obstacle lies on
-      if(x_val < 0.0) {
-        if(y0 > (y_val-cinv)*x0/x_val + cinv) {
-          angle = 2*M_PI - angle;
-        }
-      } else if(x_val > 0.0) {
-        if(y0 < (y_val-cinv)*x0/x_val + cinv) {
-          angle = 2*M_PI - angle;
-        }
-      } else {
+    // For each point in the bucket, determine the minimum arc distance from the point to the car
+    float cinv = 1.0 / curvature;
+    float left_smallest = 2 * M_PI;
+    float front_smallest = 2 * M_PI;
+    float right_smallest = 2 * M_PI;
+    if (curvature > 0) {
+      // Distance angle of points to LEFT side of the car
+      for (Vector2f point : left_sweep) {
+        Vector2f delta = point - center_of_turning;
+        // Point cloud point
+        float x0 = point.x();
+        float y0 = point.y();
+        // Circle intersect with line segment solution
+        float y_val = car_width / 2.0;
+        float x_val = sqrt(Sq(x0) + Sq(y0 - cinv) - Sq(car_width / 2.0 - cinv));
+        Vector2f p_val = Vector2f(x_val, y_val);
+        Vector2f p_diff = p_val - center_of_turning;
+
+        // Compute a dot b = |a||b|cos\theta --> \theta = Arccos(a dot b / (|a||b|))
+        float cos_theta =
+            delta.dot(p_val - center_of_turning) / (geometry::GetNormOrZero(delta) * geometry::GetNormOrZero((p_diff)));
+        float angle = std::acos(cos_theta);
+        // Check which side of the line the obstacle lies on
+        if (x_val < 0.0) {
+          if (y0 > (y_val - cinv) * x0 / x_val + cinv) {
+            angle = 2 * M_PI - angle;
+          }
+        } else if (x_val > 0.0) {
+          if (y0 < (y_val - cinv) * x0 / x_val + cinv) {
+            angle = 2 * M_PI - angle;
+          }
+        } else {
           angle = M_PI;
-      }
-      // keep shortest distance to the car
-      left_smallest = std::min(angle, left_smallest);
-    }
-
-    // Distance angle of points to FRONT side of the car
-    for(Vector2f point : front_sweep) {
-      Vector2f delta = point - center_of_turning;
-      // Point cloud point
-      float x0 = point.x();
-      float y0 = point.y();
-      // Circle intersect with line segment solution
-      float x_val = car_length-offset;
-      // NOTE that there are two solutions. The smaller one should have -w/2 < y < w/2, but we can test that assumption.
-      float y_val = cinv - sqrt(Sq(x0) + Sq(y0-cinv) - Sq(x_val));
-      //float y_pos = cinv + sqrt(Sq(x0) + Sq(y0-cinv) - Sq(x_val));
-      //float y_val = neg;
-      //if(y_val <= car_width/2.0 && y_val >= -car_width/2.0) {
-      //  cout << "Valid value: "
-      //}
-      Vector2f p_val = Vector2f(x_val, y_val);
-      Vector2f p_diff = p_val - center_of_turning;
-
-      // Compute a dot b = |a||b|cos\theta --> \theta = Arccos(a dot b / (|a||b|))
-      float cos_theta = delta.dot(p_val - center_of_turning) / 
-        (geometry::GetNormOrZero(delta)*geometry::GetNormOrZero(p_diff));
-      float angle = std::acos(cos_theta);
-      // Check which side of the line the obstacle lies on
-      if(y0 < (y_val-cinv)/x_val + cinv) {
-        angle = 2*M_PI - angle;
-      }
-
-      // keep shortest distance to the car
-      front_smallest = std::min(angle, front_smallest);
-    }
-    
-    // Distance angle of points to RIGHT side of the car
-    for(Vector2f point : right_sweep) {
-      Vector2f delta = point - center_of_turning;
-      // Point cloud point
-      float x0 = point.x();
-      float y0 = point.y();
-      // Circle intersect with line segment solution
-      float y_val = -car_width/2.0;
-      float x_val = -sqrt(Sq(x0) + Sq(y0-cinv) - Sq(y_val-cinv));
-      Vector2f p_val = Vector2f(x_val, y_val);
-      Vector2f p_diff = p_val - center_of_turning;
-
-      // Compute a dot b = |a||b|cos\theta --> \theta = Arccos(a dot b / (|a||b|))
-      float cos_theta = delta.dot(p_val - center_of_turning) / 
-        (geometry::GetNormOrZero(delta)*geometry::GetNormOrZero(p_diff));
-      float angle = std::acos(cos_theta);
-      // keep shortest distance to the car
-      right_smallest = std::min(angle, right_smallest);
-    }
-  } else { // Curvature < 0
-    // Distance angle of points to FRONT side of the car
-    for(Vector2f point : front_sweep) {
-      Vector2f delta = point - center_of_turning;
-      // Point cloud point
-      float x0 = point.x();
-      float y0 = point.y();
-      // Circle intersect with line segment solution
-      float x_val = car_length-offset;
-      // The different is the + sign
-      float y_val = cinv + sqrt(Sq(x0) + Sq(y0-cinv) - Sq(x_val));
-      Vector2f p_val = Vector2f(x_val, y_val);
-      Vector2f p_diff = p_val - center_of_turning;
-
-      // Compute a dot b = |a||b|cos\theta --> \theta = Arccos(a dot b / (|a||b|))
-      float cos_theta = delta.dot(p_val - center_of_turning) / 
-        (geometry::GetNormOrZero(delta)*geometry::GetNormOrZero(p_diff));
-      float angle = std::acos(cos_theta);
-      if(y0 > (y_val-cinv)/x_val + cinv) {
-        angle = 2*M_PI - angle;
-      }
-      // keep shortest distance to the car
-      front_smallest = std::min(angle, front_smallest);
-    }
-    
-    // Distance angle of points to RIGHT side of the car
-    for(Vector2f point : right_sweep) {
-      Vector2f delta = point - center_of_turning;
-      // Point cloud point
-      float x0 = point.x();
-      float y0 = point.y();
-      // Circle intersect with line segment solution
-      float y_val = -car_width/2.0;
-      float x_val = sqrt(Sq(x0) + Sq(y0-cinv) - Sq(y_val-cinv));
-      Vector2f p_val = Vector2f(x_val, y_val);
-      Vector2f p_diff = p_val - center_of_turning;
-
-      // Compute a dot b = |a||b|cos\theta --> \theta = Arccos(a dot b / (|a||b|))
-      float cos_theta = delta.dot(p_val - center_of_turning) / 
-        (geometry::GetNormOrZero(delta)*geometry::GetNormOrZero(p_diff));
-      float angle = std::acos(cos_theta);
-      if(x_val < 0.0) {
-        if(y0 < (y_val-cinv)*x0/x_val + cinv) {
-          angle = 2*M_PI - angle;
         }
-      } else if(x_val > 0.0) {
-        if(y0 > (y_val-cinv)*x0/x_val + cinv) {
-          angle = 2*M_PI - angle;
+        // keep shortest distance to the car
+        left_smallest = std::min(angle, left_smallest);
+      }
+
+      // Distance angle of points to FRONT side of the car
+      for (Vector2f point : front_sweep) {
+        Vector2f delta = point - center_of_turning;
+        // Point cloud point
+        float x0 = point.x();
+        float y0 = point.y();
+        // Circle intersect with line segment solution
+        float x_val = car_length - offset;
+        // NOTE that there are two solutions. The smaller one should have -w/2 < y < w/2, but we can test that
+        // assumption.
+        float y_val = cinv - sqrt(Sq(x0) + Sq(y0 - cinv) - Sq(x_val));
+        // float y_pos = cinv + sqrt(Sq(x0) + Sq(y0-cinv) - Sq(x_val));
+        // float y_val = neg;
+        // if(y_val <= car_width/2.0 && y_val >= -car_width/2.0) {
+        //   cout << "Valid value: "
+        // }
+        Vector2f p_val = Vector2f(x_val, y_val);
+        Vector2f p_diff = p_val - center_of_turning;
+
+        // Compute a dot b = |a||b|cos\theta --> \theta = Arccos(a dot b / (|a||b|))
+        float cos_theta =
+            delta.dot(p_val - center_of_turning) / (geometry::GetNormOrZero(delta) * geometry::GetNormOrZero(p_diff));
+        float angle = std::acos(cos_theta);
+        // Check which side of the line the obstacle lies on
+        if (y0 < (y_val - cinv) / x_val + cinv) {
+          angle = 2 * M_PI - angle;
         }
-      } else {
+
+        // keep shortest distance to the car
+        front_smallest = std::min(angle, front_smallest);
+      }
+
+      // Distance angle of points to RIGHT side of the car
+      for (Vector2f point : right_sweep) {
+        Vector2f delta = point - center_of_turning;
+        // Point cloud point
+        float x0 = point.x();
+        float y0 = point.y();
+        // Circle intersect with line segment solution
+        float y_val = -car_width / 2.0;
+        float x_val = -sqrt(Sq(x0) + Sq(y0 - cinv) - Sq(y_val - cinv));
+        Vector2f p_val = Vector2f(x_val, y_val);
+        Vector2f p_diff = p_val - center_of_turning;
+
+        // Compute a dot b = |a||b|cos\theta --> \theta = Arccos(a dot b / (|a||b|))
+        float cos_theta =
+            delta.dot(p_val - center_of_turning) / (geometry::GetNormOrZero(delta) * geometry::GetNormOrZero(p_diff));
+        float angle = std::acos(cos_theta);
+        // keep shortest distance to the car
+        right_smallest = std::min(angle, right_smallest);
+      }
+    } else {  // Curvature < 0
+      // Distance angle of points to FRONT side of the car
+      for (Vector2f point : front_sweep) {
+        Vector2f delta = point - center_of_turning;
+        // Point cloud point
+        float x0 = point.x();
+        float y0 = point.y();
+        // Circle intersect with line segment solution
+        float x_val = car_length - offset;
+        // The different is the + sign
+        float y_val = cinv + sqrt(Sq(x0) + Sq(y0 - cinv) - Sq(x_val));
+        Vector2f p_val = Vector2f(x_val, y_val);
+        Vector2f p_diff = p_val - center_of_turning;
+
+        // Compute a dot b = |a||b|cos\theta --> \theta = Arccos(a dot b / (|a||b|))
+        float cos_theta =
+            delta.dot(p_val - center_of_turning) / (geometry::GetNormOrZero(delta) * geometry::GetNormOrZero(p_diff));
+        float angle = std::acos(cos_theta);
+        if (y0 > (y_val - cinv) / x_val + cinv) {
+          angle = 2 * M_PI - angle;
+        }
+        // keep shortest distance to the car
+        front_smallest = std::min(angle, front_smallest);
+      }
+
+      // Distance angle of points to RIGHT side of the car
+      for (Vector2f point : right_sweep) {
+        Vector2f delta = point - center_of_turning;
+        // Point cloud point
+        float x0 = point.x();
+        float y0 = point.y();
+        // Circle intersect with line segment solution
+        float y_val = -car_width / 2.0;
+        float x_val = sqrt(Sq(x0) + Sq(y0 - cinv) - Sq(y_val - cinv));
+        Vector2f p_val = Vector2f(x_val, y_val);
+        Vector2f p_diff = p_val - center_of_turning;
+
+        // Compute a dot b = |a||b|cos\theta --> \theta = Arccos(a dot b / (|a||b|))
+        float cos_theta =
+            delta.dot(p_val - center_of_turning) / (geometry::GetNormOrZero(delta) * geometry::GetNormOrZero(p_diff));
+        float angle = std::acos(cos_theta);
+        if (x_val < 0.0) {
+          if (y0 < (y_val - cinv) * x0 / x_val + cinv) {
+            angle = 2 * M_PI - angle;
+          }
+        } else if (x_val > 0.0) {
+          if (y0 > (y_val - cinv) * x0 / x_val + cinv) {
+            angle = 2 * M_PI - angle;
+          }
+        } else {
           angle = M_PI;
+        }
+        // keep shortest distance to the car
+        right_smallest = std::min(angle, right_smallest);
       }
-      // keep shortest distance to the car
-      right_smallest = std::min(angle, right_smallest);
-    }
-    // Distance angle of points to LEFT side of the car
-    for(Vector2f point : left_sweep) {
-      Vector2f delta = point - center_of_turning;
-      // Point cloud point
-      float x0 = point.x();
-      float y0 = point.y();
-      // Circle intersect with line segment solution
-      float y_val = car_width/2.0;
-      float x_val = -sqrt(Sq(x0) + Sq(y0-cinv) - Sq(y_val - cinv));
-      Vector2f p_val = Vector2f(x_val, y_val);
-      Vector2f p_diff = p_val - center_of_turning;
+      // Distance angle of points to LEFT side of the car
+      for (Vector2f point : left_sweep) {
+        Vector2f delta = point - center_of_turning;
+        // Point cloud point
+        float x0 = point.x();
+        float y0 = point.y();
+        // Circle intersect with line segment solution
+        float y_val = car_width / 2.0;
+        float x_val = -sqrt(Sq(x0) + Sq(y0 - cinv) - Sq(y_val - cinv));
+        Vector2f p_val = Vector2f(x_val, y_val);
+        Vector2f p_diff = p_val - center_of_turning;
 
-      // Compute a dot b = |a||b|cos\theta --> \theta = Arccos(a dot b / (|a||b|))
-      float cos_theta = delta.dot(p_val - center_of_turning) / 
-        (geometry::GetNormOrZero(delta)*geometry::GetNormOrZero(p_diff));
-      float angle = std::acos(cos_theta);
-      // keep shortest distance to the car
-      left_smallest = std::min(angle, left_smallest);
+        // Compute a dot b = |a||b|cos\theta --> \theta = Arccos(a dot b / (|a||b|))
+        float cos_theta =
+            delta.dot(p_val - center_of_turning) / (geometry::GetNormOrZero(delta) * geometry::GetNormOrZero(p_diff));
+        float angle = std::acos(cos_theta);
+        // keep shortest distance to the car
+        left_smallest = std::min(angle, left_smallest);
+      }
     }
-  }
 
-  float smallest_angle = std::min(std::min(left_smallest, right_smallest), front_smallest);
-  cout << "All Angles: L: " << left_smallest << " R: " << right_smallest << "F: "<< front_smallest << endl;
-  return Navigation::calc_arc_length(curvature, smallest_angle);
+    float smallest_angle = std::min(std::min(left_smallest, right_smallest), front_smallest);
+    cout << "All Angles: L: " << left_smallest << " R: " << right_smallest << "F: " << front_smallest << endl;
+    return Navigation::calc_arc_length(curvature, smallest_angle);
   }
 }
 
-void Navigation::FilterSectorRight(const Vector2f& reference, const vector<Vector2f>& cloud, float y_val, float max_dist, vector<Vector2f>& bucket) {
+void Navigation::FilterSectorRight(const Vector2f& reference, const vector<Vector2f>& cloud, float y_val,
+                                   float max_dist, vector<Vector2f>& bucket) {
   // If the point is between the circle and the chord of the circle:
   float max_dist_sq = max_dist * max_dist;
-  for(Vector2f point : cloud) {
+  for (Vector2f point : cloud) {
     Vector2f delta = point - reference;
     float delta_sq = delta.squaredNorm();
-    
+
     if (delta_sq <= max_dist_sq && point.y() <= y_val) {
       // Add point to the return bucket
       bucket.push_back(point);
@@ -373,13 +372,14 @@ void Navigation::FilterSectorRight(const Vector2f& reference, const vector<Vecto
   }
 }
 
-void Navigation::FilterSectorLeft(const Vector2f& reference, const vector<Vector2f>& cloud, float y_val, float max_dist, vector<Vector2f>& bucket) {
+void Navigation::FilterSectorLeft(const Vector2f& reference, const vector<Vector2f>& cloud, float y_val, float max_dist,
+                                  vector<Vector2f>& bucket) {
   // If the point is between the circle and the chord of the circle:
   float max_dist_sq = max_dist * max_dist;
-  for(Vector2f point : cloud) {
+  for (Vector2f point : cloud) {
     Vector2f delta = point - reference;
     float delta_sq = delta.squaredNorm();
-    
+
     if (delta_sq <= max_dist_sq && point.y() >= y_val) {
       // Add point to the return bucket
       bucket.push_back(point);
@@ -387,12 +387,14 @@ void Navigation::FilterSectorLeft(const Vector2f& reference, const vector<Vector
   }
 }
 
-void Navigation::FilterDistances(const Vector2f& reference, const vector<Vector2f>& cloud, float min_dist, float max_dist, vector<Vector2f>& bucket) {
-  // Given a point cloud, filter them into whether they are located between min_dist and max_dist from the reference point
+void Navigation::FilterDistances(const Vector2f& reference, const vector<Vector2f>& cloud, float min_dist,
+                                 float max_dist, vector<Vector2f>& bucket) {
+  // Given a point cloud, filter them into whether they are located between min_dist and max_dist from the reference
+  // point
   float min_dist_sq = min_dist * min_dist;
   float max_dist_sq = max_dist * max_dist;
 
-  for(Vector2f point : cloud) {
+  for (Vector2f point : cloud) {
     Vector2f delta = point - reference;
     float delta_sq = delta.squaredNorm();
 
@@ -404,8 +406,7 @@ void Navigation::FilterDistances(const Vector2f& reference, const vector<Vector2
   // The bucket should now be populated with the correct points.
 }
 
-void Navigation::SetNavGoal(const Vector2f& loc, float angle) {
-}
+void Navigation::SetNavGoal(const Vector2f& loc, float angle) {}
 
 void Navigation::UpdateLocation(const Eigen::Vector2f& loc, float angle) {
   localization_initialized_ = true;
@@ -413,10 +414,7 @@ void Navigation::UpdateLocation(const Eigen::Vector2f& loc, float angle) {
   robot_angle_ = angle;
 }
 
-void Navigation::UpdateOdometry(const Vector2f& loc,
-                                float angle,
-                                const Vector2f& vel,
-                                float ang_vel) {
+void Navigation::UpdateOdometry(const Vector2f& loc, float angle, const Vector2f& vel, float ang_vel) {
   robot_omega_ = ang_vel;
   robot_vel_ = vel;
   if (!odom_initialized_) {
@@ -431,124 +429,125 @@ void Navigation::UpdateOdometry(const Vector2f& loc,
   odom_angle_ = angle;
 }
 
-void Navigation::ObservePointCloud(const vector<Vector2f>& cloud,
-                                   double time) {
+void Navigation::ObservePointCloud(const vector<Vector2f>& cloud, double time) {
   // A scan from the cloud, associated with the baselink frame at that time.
   point_cloud_ = cloud;
-  obs_time = time; 
+  obs_time = time;
 }
 
-vector<Vector2f> Navigation::forward_predict_cloud(const vector<Vector2f> cloud, std::deque<Controls> controls){
-	Vector2f new_pose = Vector2f(0.0, 0.0);
-	double angular_change = 0;
-	
-	// Update with odom
-	//new_pose = new_pose + (robot_vel_ * time_interval);
+vector<Vector2f> Navigation::forward_predict_cloud(const vector<Vector2f> cloud, std::deque<Controls> controls) {
+  Vector2f new_pose = Vector2f(0.0, 0.0);
+  double angular_change = 0;
 
-	double last_time = 0.0;
-	for (Controls i: controls){
-		if (last_time != 0.0){
-			time_interval = i.time - last_time;
-		}
-		
-		last_time = i.time;
+  // Update with odom
+  // new_pose = new_pose + (robot_vel_ * time_interval);
 
-		//Apply control on robot loc and get location for next time step
+  double last_time = 0.0;
+  for (Controls i : controls) {
+    if (last_time != 0.0) {
+      time_interval = i.time - last_time;
+    }
 
-		if (i.curvature == 0){
-			// Only need to update x pose in base link frame
-			new_pose.x() += i.velocity * time_interval; //TODO: What is the actual duration here?
-		} else {
-			double cur_angular_change = i.curvature * i.velocity * time_interval; //TODO: What is the actual duration here?
-			angular_change += cur_angular_change; //TODO: What is the actual duration here?
+    last_time = i.time;
 
-			// Center of turning
-			Eigen::Vector2f center_of_turning = Vector2f(0, 1/i.curvature);
+    // Apply control on robot loc and get location for next time step
 
-			// New pose in base link frame
-			Eigen::Rotation2Df r(cur_angular_change);
-			Vector2f arc_trans_pose = r * (-1 * center_of_turning) + center_of_turning;
+    if (i.curvature == 0) {
+      // Only need to update x pose in base link frame
+      new_pose.x() += i.velocity * time_interval;  // TODO: What is the actual duration here?
+    } else {
+      double cur_angular_change = i.curvature * i.velocity * time_interval;  // TODO: What is the actual duration here?
+      angular_change += cur_angular_change;                                  // TODO: What is the actual duration here?
 
-			// New pose in map frame
-			Eigen::Rotation2Df r_adj(angular_change);
-			Vector2f rotated_arc_trans_pose = r * arc_trans_pose;
-			new_pose += rotated_arc_trans_pose;
-		}
-	}
+      // Center of turning
+      Eigen::Vector2f center_of_turning = Vector2f(0, 1 / i.curvature);
 
-	// Calculate lidar estimate relative to new pose
-	vector<Vector2f> new_cloud = vector<Vector2f>();
-	for (Vector2f point : cloud){
-		// Apply rotation
-		Eigen::Rotation2Df r(-angular_change);
-		Vector2f new_point = r * point;
+      // New pose in base link frame
+      Eigen::Rotation2Df r(cur_angular_change);
+      Vector2f arc_trans_pose = r * (-1 * center_of_turning) + center_of_turning;
 
-		// Apply translation
-		new_point = new_point - new_pose;
+      // New pose in map frame
+      Eigen::Rotation2Df r_adj(angular_change);
+      Vector2f rotated_arc_trans_pose = r * arc_trans_pose;
+      new_pose += rotated_arc_trans_pose;
+    }
+  }
 
-		new_cloud.push_back(new_point);
-	}
+  // Calculate lidar estimate relative to new pose
+  vector<Vector2f> new_cloud = vector<Vector2f>();
+  for (Vector2f point : cloud) {
+    // Apply rotation
+    Eigen::Rotation2Df r(-angular_change);
+    Vector2f new_point = r * point;
 
-	return new_cloud;
+    // Apply translation
+    new_point = new_point - new_pose;
+
+    new_cloud.push_back(new_point);
+  }
+
+  return new_cloud;
 }
 
-double Navigation::get_velocity(double arc_length, double pred_vel){
-	cout << "Vel: " << pred_vel << endl;
+double Navigation::get_velocity(double arc_length, double pred_vel) {
+  cout << "Vel: " << pred_vel << endl;
 
-	if (arc_length <= (abs(pred_vel) * abs(pred_vel))/ (2 * max_accel)){
-		// Decelerate
-		if (pred_vel < 0){
-			cout << "Backwards Decelerating" << endl;
-			return pred_vel + (max_accel * time_interval);
-		} else {
-			cout << "Forward Decelerating" << endl;
-			return pred_vel - (max_accel * time_interval);
-		}
-	} else {
-		if (abs(pred_vel) >= max_vel){
-			// Maintain
-			cout << "Maintaining (Default)" << endl;
-			if (pred_vel < 0){
-				return -1 * max_vel;
-			} else {
-				return max_vel;
-			}
-		} else {
-			// Find if we can accelerate safely here
-			// by forward evaluation of constraints
-			
-			double temp_next_vel = abs(pred_vel) + (max_accel * time_interval);
-			double temp_next_arc_length = arc_length - (temp_next_vel * time_interval);
+  if (arc_length <= (abs(pred_vel) * abs(pred_vel)) / (2 * max_accel)) {
+    // Decelerate
+    if (pred_vel < 0) {
+      cout << "Backwards Decelerating" << endl;
+      return pred_vel + (max_accel * time_interval);
+    } else {
+      cout << "Forward Decelerating" << endl;
+      return pred_vel - (max_accel * time_interval);
+    }
+  } else {
+    // TODO Sadanand: not reqd, only equal to max_vel
+    if (abs(pred_vel) >= max_vel) {
+      // Maintain
+      cout << "Maintaining (Default)" << endl;
+      if (pred_vel < 0) {
+        return -1 * max_vel;
+      } else {
+        return max_vel;
+      }
+    } else {
+      // Find if we can accelerate safely here
+      // by forward evaluation of constraints
 
-			if (temp_next_arc_length <= (temp_next_vel * temp_next_vel) / (2 * max_accel)){
-				// Unsafe to accelerate
-				cout << "Maintaining (Safety)" << endl;
-				return pred_vel;
-			} else {
-				// Can accelerate safely here
-				if (pred_vel < 0){
-					cout << "Backwards Accelerating" << endl;
-					return pred_vel - (max_accel * time_interval);
-				} else {
-					cout << "Forward Accelerating" << endl;
-					return pred_vel + (max_accel * time_interval);
-				}
-			}
-		}
-	}
+      // TODO Sadanand: this fwd check not needed, just do whats in else here
 
-	// Default case, shouldn't reach
-	cout << "BAD RETURN" << endl;
-	return 0.0;
+      double temp_next_vel = abs(pred_vel) + (max_accel * time_interval);
+      double temp_next_arc_length = arc_length - (temp_next_vel * time_interval);
+
+      if (temp_next_arc_length <= (temp_next_vel * temp_next_vel) / (2 * max_accel)) {
+        // Unsafe to accelerate
+        cout << "Maintaining (Safety)" << endl;
+        return pred_vel;
+      } else {
+        // Can accelerate safely here
+        if (pred_vel < 0) {
+          cout << "Backwards Accelerating" << endl;
+          return pred_vel - (max_accel * time_interval);
+        } else {
+          cout << "Forward Accelerating" << endl;
+          return pred_vel + (max_accel * time_interval);
+        }
+      }
+    }
+  }
+
+  // TODO Sadanand: impossible, remove this
+  // Default case, shouldn't reach
+  cout << "BAD RETURN" << endl;
+  return 0.0;
 }
 
-double Navigation::calc_arc_length(double curvature, double angle){
-	return abs(angle / curvature);
-}
+double Navigation::calc_arc_length(double curvature, double angle) { return abs(angle / curvature); }
 
 void Navigation::Run() {
   // This function gets called 20 times a second to form the control loop.
-  
+
   // Clear previous visualizations.
   visualization::ClearVisualizationMsg(local_viz_msg_);
   visualization::ClearVisualizationMsg(global_viz_msg_);
@@ -557,21 +556,21 @@ void Navigation::Run() {
   if (!odom_initialized_) return;
 
   // Forward predict point_cloud_ and pop top of queue that is too old
-  
-  while (!controls.empty()){
-	if (!controls.empty() && ((obs_time - controls.front().time) > actuation_latency)){
-  		controls.pop_front();
-	} else {
-		break;
-	}
-  }
-  
-  vector<Vector2f> new_cloud = Navigation::forward_predict_cloud(point_cloud_, controls);
-  //vector<Vector2f> new_cloud = point_cloud_;
 
-  // The control iteration goes here. 
+  while (!controls.empty()) {
+    if (!controls.empty() && ((obs_time - controls.front().time) > actuation_latency)) {
+      controls.pop_front();
+    } else {
+      break;
+    }
+  }
+
+  vector<Vector2f> new_cloud = Navigation::forward_predict_cloud(point_cloud_, controls);
+  // vector<Vector2f> new_cloud = point_cloud_;
+
+  // The control iteration goes here.
   // Feel free to make helper functions to structure the control appropriately.
-  
+
   // The latest observed point cloud is accessible via "point_cloud_"
 
   // Based on selected curvature (and thus arc lenght), get potential velocity value
@@ -580,7 +579,7 @@ void Navigation::Run() {
   double curvature = 0.0;
 
   // TODO: Transform point cloud to baselink frame.
-  //Navigation::TransformPointCloudToBaseLink(point_cloud_, offset);
+  // Navigation::TransformPointCloudToBaseLink(point_cloud_, offset);
 
   double arc_length = Navigation::MinimumDistanceToObstacle(new_cloud, curvature);
 
@@ -588,17 +587,17 @@ void Navigation::Run() {
 
   double velocity = 0.0;
   if (!controls.empty()) {
-  	velocity = Navigation::get_velocity(arc_length, controls.back().velocity);
-  } else { 
-  	velocity = Navigation::get_velocity(arc_length, 0.0);
-  } 
+    velocity = Navigation::get_velocity(arc_length, controls.back().velocity);
+  } else {
+    velocity = Navigation::get_velocity(arc_length, 0.0);
+  }
 
   drive_msg_.curvature = curvature;
   cout << "Sending Velocity: " << velocity << endl;
   cout << "Queue Size: " << controls.size() << endl;
   drive_msg_.velocity = velocity;
 
-  Controls cur_control = {.time = ros::Time::now().toSec(), .curvature = curvature, .velocity = velocity };
+  Controls cur_control = {.time = ros::Time::now().toSec(), .curvature = curvature, .velocity = velocity};
 
   controls.push_back(cur_control);
 

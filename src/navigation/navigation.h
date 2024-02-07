@@ -30,7 +30,7 @@
 #define NAVIGATION_H
 
 namespace ros {
-  class NodeHandle;
+class NodeHandle;
 }  // namespace ros
 
 namespace navigation {
@@ -44,39 +44,35 @@ struct PathOption {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
 };
 
-struct Controls{
-	double time;
-        double curvature;
-        double velocity;
+struct Controls {
+  double time;
+  double curvature;
+  double velocity;
 };
 
 class Navigation {
  public:
-
-   // Constructor
+  // Constructor
   explicit Navigation(const std::string& map_file, ros::NodeHandle* n);
 
   // Used in callback from localization to update position.
   void UpdateLocation(const Eigen::Vector2f& loc, float angle);
 
   // Used in callback for odometry messages to update based on odometry.
-  void UpdateOdometry(const Eigen::Vector2f& loc,
-                      float angle,
-                      const Eigen::Vector2f& vel,
-                      float ang_vel);
+  void UpdateOdometry(const Eigen::Vector2f& loc, float angle, const Eigen::Vector2f& vel, float ang_vel);
 
   // Updates based on an observed laser scan
-  void ObservePointCloud(const std::vector<Eigen::Vector2f>& cloud,
-                         double time);
+  void ObservePointCloud(const std::vector<Eigen::Vector2f>& cloud, double time);
 
   // Forward predicts the lidar from previous actions
-  std::vector<Eigen::Vector2f> forward_predict_cloud(const std::vector<Eigen::Vector2f> cloud, std::deque<Controls> controls);
+  std::vector<Eigen::Vector2f> forward_predict_cloud(const std::vector<Eigen::Vector2f> cloud,
+                                                     std::deque<Controls> controls);
 
   // This functions calculates the arc length given a curvature vaule
   // and maximum angle along that curvature
   double calc_arc_length(double curvature, double angle);
 
-  // This function returns the absolute value of the velocity 
+  // This function returns the absolute value of the velocity
   double get_velocity(double arc_length, double pred_vel);
 
   // Main function called continously from main
@@ -84,23 +80,15 @@ class Navigation {
   // Used to set the next target pose.
   void SetNavGoal(const Eigen::Vector2f& loc, float angle);
 
-  void FilterSectorRight(const Eigen::Vector2f& reference, 
-                         const std::vector<Eigen::Vector2f>& cloud,
-                         float y_val, float max_dist, 
-                         std::vector<Eigen::Vector2f>& bucket);
-  void FilterSectorLeft(const Eigen::Vector2f& reference,
-                        const std::vector<Eigen::Vector2f>& cloud,
-                        float y_val, float max_dist, 
-                        std::vector<Eigen::Vector2f>& bucket);
-  void FilterDistances(const Eigen::Vector2f& reference,
-                       const std::vector<Eigen::Vector2f>& cloud,
-                       float min_dist, float max_dist, 
-                       std::vector<Eigen::Vector2f>& bucket);
-  double MinimumDistanceToObstacle(const std::vector<Eigen::Vector2f>& cloud, 
-                                  double curvature);
+  void FilterSectorRight(const Eigen::Vector2f& reference, const std::vector<Eigen::Vector2f>& cloud, float y_val,
+                         float max_dist, std::vector<Eigen::Vector2f>& bucket);
+  void FilterSectorLeft(const Eigen::Vector2f& reference, const std::vector<Eigen::Vector2f>& cloud, float y_val,
+                        float max_dist, std::vector<Eigen::Vector2f>& bucket);
+  void FilterDistances(const Eigen::Vector2f& reference, const std::vector<Eigen::Vector2f>& cloud, float min_dist,
+                       float max_dist, std::vector<Eigen::Vector2f>& bucket);
+  double MinimumDistanceToObstacle(const std::vector<Eigen::Vector2f>& cloud, double curvature);
 
  private:
-
   // Whether odometry has been initialized.
   bool odom_initialized_;
   // Whether localization has been initialized.
