@@ -91,8 +91,14 @@ class Navigation {
 
   // Path scoring utilites
   std::vector<PathOption> GeneratePathOptions(const std::vector<Eigen::Vector2f>& new_cloud, float cmax, float cstep,
-                                              float w1);
+                                              float w1, float w2);
   PathOption ChooseBestPathOption(const std::vector<PathOption>& path_options);
+  Eigen::Vector2f CalculateClosestPointOnArc(const Eigen::Vector2f& robot_loc, const Eigen::Vector2f& goal_loc,
+                                             float curvature, float robot_angle);
+  Eigen::Vector2f CalculateArcEndpoint(const Eigen::Vector2f& robot_loc, float curvature, float arc_length,
+                                       float robot_angle);
+  bool IsEndpointAfterCPA(const Eigen::Vector2f& robot_loc, const Eigen::Vector2f& closest_point_loc,
+                          const Eigen::Vector2f& arc_endpoint_loc, float curvature, float arc_length);
 
  private:
   // Whether odometry has been initialized.

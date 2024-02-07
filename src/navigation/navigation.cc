@@ -427,6 +427,11 @@ void Navigation::UpdateOdometry(const Vector2f& loc, float angle, const Vector2f
   }
   odom_loc_ = loc;
   odom_angle_ = angle;
+
+  // update robot_loc_ based on diff of odom
+  robot_loc_ = robot_loc_ + (odom_loc_ - odom_start_loc_);
+  // update robot angle
+  robot_angle_ = robot_angle_ + (odom_angle_ - odom_start_angle_);
 }
 
 void Navigation::ObservePointCloud(const vector<Vector2f>& cloud, double time) {
@@ -545,14 +550,33 @@ double Navigation::get_velocity(double arc_length, double pred_vel) {
 
 double Navigation::calc_arc_length(double curvature, double angle) { return abs(angle / curvature); }
 
-vector<PathOption> Navigation::GeneratePathOptions(const vector<Vector2f>& new_cloud, float cmax, float cstep,
-                                                   float w1) {
+vector<PathOption> Navigation::GeneratePathOptions(const vector<Vector2f>& new_cloud, float cmax, float cstep, float w1,
+                                                   float w2) {
   vector<PathOption> path_options;
   for (float curvature = -cmax; curvature <= cmax; curvature += cstep) {
     PathOption option;
     option.curvature = curvature;
     option.free_path_length = Navigation::MinimumDistanceToObstacle(new_cloud, curvature);
-    option.score = option.free_path_length + w1 * (1 - abs(curvature));
+
+    // get cpa on arc
+    float fwd_x_goal = 5.0;
+    const Eigen::Vector2f nav_goal_loc_temp = Vector2f(fwd_x_goal, 0);
+    Eigen::Vector2f closest_point =
+        Navigation::CalculateClosestPointOnArc(robot_loc_, nav_goal_loc_temp, curvature, robot_angle_);
+
+    // get endpoint of arc
+    Eigen::Vector2f endpoint =
+        Navigation::CalculateArcEndpoint(robot_loc_, curvature, option.free_path_length, robot_angle_);
+
+    float cpa_dist = 0.0;
+
+    if (Navigation::IsEndpointAfterCPA(robot_loc_, closest_point, endpoint, curvature, option.free_path_length)) {
+      cpa_dist = (closest_point - nav_goal_loc_temp).norm();
+    } else {
+      cpa_dist = (endpoint - nav_goal_loc_temp).norm();
+    }
+
+    option.score = option.free_path_length + w1 * (1 - abs(curvature)) + w2 * (fwd_x_goal - cpa_dist);
     path_options.push_back(option);
   }
   return path_options;
@@ -575,13 +599,118 @@ PathOption Navigation::ChooseBestPathOption(const vector<PathOption>& path_optio
   return best_option;
 }
 
+bool Navigation::IsEndpointAfterCPA(const Eigen::Vector2f& robot_loc, const Eigen::Vector2f& closest_point_loc,
+                                    const Eigen::Vector2f& arc_endpoint_loc, float curvature, float arc_length) {
+  if (std::abs(curvature) < 1e-6) {  // Check for straight line case
+    // Movement in straight line
+    return (arc_endpoint_loc - robot_loc).norm() > (closest_point_loc - robot_loc).norm();
+
+  } else {
+    // Calculate the angles from the center of the circle to the robot_loc, CPA, and endpoint
+    // Calculate radius of the circle
+    float radius = 1 / std::abs(curvature);
+    // Calculate the center of the rotation circle
+    Eigen::Vector2f center =
+        robot_loc + Eigen::Rotation2Df(curvature > 0 ? -M_PI_2 : M_PI_2) * Eigen::Vector2f(0, radius);
+    Eigen::Vector2f center_to_robot = robot_loc - center;
+    Eigen::Vector2f center_to_cpa = closest_point_loc - center;
+    Eigen::Vector2f center_to_endpoint = arc_endpoint_loc - center;
+
+    float angle_to_robot = std::atan2(center_to_robot.y(), center_to_robot.x());
+    float angle_to_cpa = std::atan2(center_to_cpa.y(), center_to_cpa.x());
+    float angle_to_endpoint = std::atan2(center_to_endpoint.y(), center_to_endpoint.x());
+
+    // Normalize angles to the range [0, 2π)
+    auto normalize_angle = [](float angle) {
+      while (angle < 0) angle += 2 * M_PI;
+      while (angle >= 2 * M_PI) angle -= 2 * M_PI;
+      return angle;
+    };
+
+    angle_to_robot = normalize_angle(angle_to_robot);
+    angle_to_cpa = normalize_angle(angle_to_cpa);
+    angle_to_endpoint = normalize_angle(angle_to_endpoint);
+
+    // Determine if the endpoint is after the CPA based on curvature
+    if (curvature > 0) {  // Left turn
+      return normalize_angle(angle_to_endpoint - angle_to_robot) > normalize_angle(angle_to_cpa - angle_to_robot);
+    } else {  // Right turn
+      return normalize_angle(angle_to_robot - angle_to_endpoint) > normalize_angle(angle_to_robot - angle_to_cpa);
+    }
+  }
+}
+
+Eigen::Vector2f Navigation::CalculateArcEndpoint(const Eigen::Vector2f& robot_loc, float curvature, float arc_length,
+                                                 float robot_angle) {
+  Eigen::Vector2f endpoint;
+
+  if (std::abs(curvature) < 1e-6) {  // Check for straight line case
+    // Movement in straight line
+    endpoint = robot_loc + Eigen::Vector2f(std::cos(robot_angle) * arc_length, std::sin(robot_angle) * arc_length);
+  } else {
+    // Calculate radius of the circle
+    float radius = 1 / std::abs(curvature);
+    // Calculate angle subtended by the arc (in radians)
+    float angle = arc_length / radius;
+    // Calculate the center of the rotation circle
+    Eigen::Vector2f center =
+        robot_loc + Eigen::Rotation2Df(curvature > 0 ? -M_PI_2 : M_PI_2) * Eigen::Vector2f(0, radius);
+
+    // Calculate endpoint of the arc
+    Eigen::Affine2f transform(Eigen::Translation2f(center) * Eigen::Rotation2Df(angle));
+    endpoint = transform * (robot_loc - center) + center;
+  }
+
+  return endpoint;
+}
+
+Eigen::Vector2f Navigation::CalculateClosestPointOnArc(const Eigen::Vector2f& robot_loc,
+                                                       const Eigen::Vector2f& goal_loc, float curvature,
+                                                       float robot_angle) {
+  Eigen::Vector2f closest_point_loc_;
+
+  if (std::abs(curvature) < 1e-6) {
+    // The path is a straight line
+    Eigen::Vector2f robot_to_goal = goal_loc - robot_loc;
+    Eigen::Vector2f robot_orientation(std::cos(robot_angle), std::sin(robot_angle));
+    float distance_along_path = robot_to_goal.dot(robot_orientation);
+    closest_point_loc_ = robot_loc + robot_orientation * distance_along_path;
+  } else {
+    // The path is an arc of a circle
+    float radius = 1 / std::abs(curvature);
+    Eigen::Vector2f circle_center =
+        robot_loc + Eigen::Rotation2Df(curvature > 0 ? -M_PI_2 : M_PI_2) * Eigen::Vector2f(0, radius);
+
+    Eigen::Vector2f center_to_goal = goal_loc - circle_center;
+    float goal_dist = center_to_goal.norm();
+
+    // Check if the goal is inside the circle
+    if (goal_dist < radius) {
+      // The closest point is not defined in this case because the goal is inside the turn circle
+      // return Eigen::Vector2f(std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN());
+      // return 0 TODO: hack
+      return Eigen::Vector2f(0, 0);
+    }
+
+    // Calculate the angle between the robot's starting location and the goal location
+    float angle_to_goal = std::atan2(center_to_goal.y(), center_to_goal.x());
+    // Calculate the angle from the robot's starting location to the closest point on the arc
+    float angle_to_closest_point = angle_to_goal - std::asin(radius / goal_dist);
+
+    // Calculate closest point coordinates on the arc
+    Eigen::Rotation2Df rot(angle_to_closest_point);
+    closest_point_loc_ = circle_center + rot * Eigen::Vector2f(radius, 0);
+  }
+
+  return closest_point_loc_;
+}
+
 void Navigation::Run() {
   // This function gets called 20 times a second to form the control loop.
 
   // Clear previous visualizations.
   visualization::ClearVisualizationMsg(local_viz_msg_);
   visualization::ClearVisualizationMsg(global_viz_msg_);
-  std::cout << "********************************* Robot's x: " << robot_loc_.x() << " y: " << robot_loc_.y() << " angle: " << robot_angle_ << std::endl;
 
   // If odometry has not been initialized, we can't do anything.
   if (!odom_initialized_) return;
@@ -601,7 +730,8 @@ void Navigation::Run() {
   float cmax = 1.0;
   float cstep = 0.05;
   float w1 = 0.0;
-  vector<PathOption> path_options = Navigation::GeneratePathOptions(new_cloud, cmax, cstep, w1);
+  float w2 = 5.0;
+  vector<PathOption> path_options = Navigation::GeneratePathOptions(new_cloud, cmax, cstep, w1, w2);
   PathOption best_option = Navigation::ChooseBestPathOption(path_options);
 
   // vector<Vector2f> new_cloud = point_cloud_;
@@ -614,8 +744,6 @@ void Navigation::Run() {
   // Based on selected curvature (and thus arc lenght), get potential velocity value
 
   double curvature = best_option.curvature;
-  std::cout << "***************** CHOSEN Free path length: " << best_option.free_path_length
-            << " Curvature: " << curvature << " *****************" << std::endl;
 
   // TODO: Transform point cloud to baselink frame.
   // Navigation::TransformPointCloudToBaseLink(point_cloud_, offset);
