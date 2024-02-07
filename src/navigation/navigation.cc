@@ -140,8 +140,8 @@ double Navigation::MinimumDistanceToObstacle(const vector<Vector2f>& cloud, doub
     origin_to_right = 1.0/curvature + car_width / 2.0;
     origin_to_front = car_length - offset;
   } else { // Curvature < 0
-    origin_to_left = 1.0/curvature + car_width / 2.0;
-    origin_to_right = 1.0/curvature - car_width / 2.0;
+    origin_to_left = -1.0/curvature + car_width / 2.0;
+    origin_to_right = -1.0/curvature - car_width / 2.0;
     origin_to_front = car_length - offset;
   }
 
@@ -158,6 +158,11 @@ double Navigation::MinimumDistanceToObstacle(const vector<Vector2f>& cloud, doub
   // The shortest radius is rear_left; the longest is rear right
   // We can filter into regions: obstacles that would hit the left side of the car; obstacles that would hit
   // the right side of the car
+  cout << "Curvature is : " << curvature << endl;
+  cout << "Rear Right Radius:" << rear_right_radius << endl;
+  cout << "Rear Left Radius:" << rear_left_radius << endl;
+  cout << "Front Right Radius:" << front_right_radius << endl;
+  cout << "Front Left Radius:" << front_left_radius << endl;
 
   vector<Vector2f> left_sweep = vector<Vector2f>();
   vector<Vector2f> front_sweep = vector<Vector2f>();
