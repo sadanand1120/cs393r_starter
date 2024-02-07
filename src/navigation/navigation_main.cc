@@ -83,7 +83,7 @@ void LaserCallback(const sensor_msgs::LaserScan& msg) {
            GetWallTime() - msg.header.stamp.toSec());
   }
   // Location of the laser on the robot. Assumes the laser is forward-facing.
-  const Vector2f kLaserLoc(0.2, 0); //TODO: We need to measure this! Get the distance and angle.
+  const Vector2f kLaserLoc(0.21, 0); //TODO: We need to measure this! Get the distance and angle.
 
   // TODO: Should this only be the 1081 from the current lidar?
   vector<Vector2f> point_cloud_;
@@ -105,7 +105,7 @@ void LaserCallback(const sensor_msgs::LaserScan& msg) {
     // Documention says that ranges below or above min max values should be ignored.
     if(r_i >= msg.range_min && r_i <= msg.range_max) {
       // Point cloud in baselink frame
-      Vector2f computed = kLaserLoc + Vector2f(r_i*std::cos(theta_i + laser_angle), r_i*std::sin(theta_i + laser_angle));
+      Vector2f computed = kLaserLoc + Vector2f(r_i*std::cos(theta_i + laser_angle), -r_i*std::sin(theta_i + laser_angle));
       point_cloud_.push_back( computed );
     }
     // Update theta_i for next cycle

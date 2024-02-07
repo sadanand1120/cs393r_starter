@@ -63,7 +63,7 @@ const float kEpsilon = 1e-5;
 const float max_accel = 4;
 const float max_vel = 1.0;
 double time_interval = 0.1; // TODO: Get an actual value for this?
-double actuation_latency = 0.15; // TODO: get an actual value for this
+double actuation_latency = 0.2; // TODO: get an actual value for this
 
 } //namespace
 
@@ -101,14 +101,14 @@ double Navigation::MinimumDistanceToObstacle(const vector<Vector2f>& cloud, doub
   // Given an arc (expressed by the curvature parameter, and the car physical dimensions, compute the distance
   // that the car can travel from its current location to the obstacle.
   float actual_car_length = 0.535; // [meters]
-  float length_margin = 0.05;
+  float length_margin = 0.1;
   float car_length = actual_car_length + length_margin;
   float actual_car_width = 0.281;  // [meters]
-  float width_margin = 0.05;
+  float width_margin = 0.1;
   float car_width = actual_car_width + width_margin;
   //float wheel_base = 0.324; // [meters]
   //float max_curvature = 1.0;
-  float actual_offset = 0.1; // meters <-- need to measure this
+  float actual_offset = 0.09; // meters <-- need to measure this
   float offset = actual_offset + (length_margin / 2);
 
   // We work in the baselink frame of reference. In the base link frame of reference, the center of turning is
@@ -122,7 +122,7 @@ double Navigation::MinimumDistanceToObstacle(const vector<Vector2f>& cloud, doub
     for(Vector2f point : cloud) {
       float y0 = point.y();
       float x0 = point.x();
-      if(y0 <= car_width /2.0 && y0 >= -car_width/2.0 && x0 >= car_length - offset) {
+      if(y0 <= car_width /2.0 && y0 >= -car_width/2.0 && x0 >= actual_car_length - offset) {
         closest_x = std::min(closest_x, x0);
       }
     } 
@@ -175,14 +175,14 @@ double Navigation::MinimumDistanceToObstacle(const vector<Vector2f>& cloud, doub
     // Front side of car
     Navigation::FilterDistances(center_of_turning, cloud, front_left_radius, front_right_radius, front_sweep);
     // Right side of car
-    Navigation::FilterSectorRight(center_of_turning, cloud, rear_right_radius, front_right_radius, right_sweep);
+    Navigation::FilterSectorRight(center_of_turning, cloud, -car_width/2.0, rear_right_radius, right_sweep);
   } else { // curvature is negative
     // Right side of car
     Navigation::FilterDistances(center_of_turning, cloud, rear_right_radius, front_right_radius, right_sweep);
     // Front side of car
     Navigation::FilterDistances(center_of_turning, cloud, front_right_radius, front_left_radius, front_sweep);
     // Left side of car
-    Navigation::FilterSectorLeft(center_of_turning, cloud, rear_left_radius, front_left_radius, left_sweep);
+    Navigation::FilterSectorLeft(center_of_turning, cloud, car_width/2.0, rear_left_radius, left_sweep);
   }
 
   cout << "Left Sweep Size: " << left_sweep.size() << endl;
@@ -480,11 +480,11 @@ vector<Vector2f> Navigation::forward_predict_cloud(const vector<Vector2f> cloud,
 	vector<Vector2f> new_cloud = vector<Vector2f>();
 	for (Vector2f point : cloud){
 		// Apply rotation
-		Eigen::Rotation2Df r(angular_change);
+		Eigen::Rotation2Df r(-angular_change);
 		Vector2f new_point = r * point;
 
 		// Apply translation
-		new_point = new_point + new_pose;
+		new_point = new_point - new_pose;
 
 		new_cloud.push_back(new_point);
 	}
@@ -566,8 +566,8 @@ void Navigation::Run() {
 	}
   }
   
-  //vector<Vector2f> new_cloud = Navigation::forward_predict_cloud(point_cloud_, controls);
-  vector<Vector2f> new_cloud = point_cloud_;
+  vector<Vector2f> new_cloud = Navigation::forward_predict_cloud(point_cloud_, controls);
+  //vector<Vector2f> new_cloud = point_cloud_;
 
   // The control iteration goes here. 
   // Feel free to make helper functions to structure the control appropriately.
@@ -577,7 +577,7 @@ void Navigation::Run() {
   // Based on selected curvature (and thus arc lenght), get potential velocity value
 
   // TODO: REMOVE THESE TEMP VALUES
-  double curvature = 0.5;
+  double curvature = 0.0;
 
   // TODO: Transform point cloud to baselink frame.
   //Navigation::TransformPointCloudToBaseLink(point_cloud_, offset);
