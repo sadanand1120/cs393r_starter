@@ -581,6 +581,7 @@ void Navigation::Run() {
   // Clear previous visualizations.
   visualization::ClearVisualizationMsg(local_viz_msg_);
   visualization::ClearVisualizationMsg(global_viz_msg_);
+  std::cout << "Robot's x: " << robot_loc_.x() << " y: " << robot_loc_.y() << " angle: " << robot_angle_ << std::endl;
 
   // If odometry has not been initialized, we can't do anything.
   if (!odom_initialized_) return;
@@ -597,9 +598,9 @@ void Navigation::Run() {
   vector<Vector2f> new_cloud = Navigation::forward_predict_cloud(point_cloud_, controls);
 
   // Scoring
-  float cmax = 0.3;
-  float cstep = 0.01;
-  float w1 = 10.0;
+  float cmax = 1.0;
+  float cstep = 0.05;
+  float w1 = 0.0;
   vector<PathOption> path_options = Navigation::GeneratePathOptions(new_cloud, cmax, cstep, w1);
   PathOption best_option = Navigation::ChooseBestPathOption(path_options);
 
