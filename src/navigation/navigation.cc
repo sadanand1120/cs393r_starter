@@ -730,7 +730,7 @@ void Navigation::Run() {
   float cmax = 1.0;
   float cstep = 0.05;
   float w1 = 0.0;
-  float w2 = 5.0;
+  float w2 = 2.0;
   vector<PathOption> path_options = Navigation::GeneratePathOptions(new_cloud, cmax, cstep, w1, w2);
   PathOption best_option = Navigation::ChooseBestPathOption(path_options);
 
