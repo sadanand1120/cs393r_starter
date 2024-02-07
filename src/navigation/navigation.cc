@@ -98,10 +98,10 @@ double Navigation::MinimumDistanceToObstacle(const vector<Vector2f>& cloud, doub
   // Given an arc (expressed by the curvature parameter, and the car physical dimensions, compute the distance
   // that the car can travel from its current location to the obstacle.
   float actual_car_length = 0.535;  // [meters]
-  float length_margin = 0.1;
+  float length_margin = 0.2;
   float car_length = actual_car_length + length_margin;
   float actual_car_width = 0.281;  // [meters]
-  float width_margin = 0.1;
+  float width_margin = 0.2;
   float car_width = actual_car_width + width_margin;
   // float wheel_base = 0.324; // [meters]
   // float max_curvature = 1.0;
@@ -545,6 +545,36 @@ double Navigation::get_velocity(double arc_length, double pred_vel) {
 
 double Navigation::calc_arc_length(double curvature, double angle) { return abs(angle / curvature); }
 
+vector<PathOption> Navigation::GeneratePathOptions(const vector<Vector2f>& new_cloud, float cmax, float cstep,
+                                                   float w1) {
+  vector<PathOption> path_options;
+  for (float curvature = -cmax; curvature <= cmax; curvature += cstep) {
+    PathOption option;
+    option.curvature = curvature;
+    option.free_path_length = Navigation::MinimumDistanceToObstacle(new_cloud, curvature);
+    option.score = option.free_path_length + w1 * (1 - abs(curvature));
+    path_options.push_back(option);
+  }
+  return path_options;
+}
+
+PathOption Navigation::ChooseBestPathOption(const vector<PathOption>& path_options) {
+  PathOption best_option;
+  float highest_score = -std::numeric_limits<float>::max();
+  for (const auto& option : path_options) {
+    // Check if the current option has a higher score
+    if (option.score > highest_score) {
+      highest_score = option.score;
+      best_option = option;
+    }
+    // In case of a tie, prefer an option with a curvature closer to 0.0
+    else if (option.score == highest_score && std::abs(option.curvature) < std::abs(best_option.curvature)) {
+      best_option = option;
+    }
+  }
+  return best_option;
+}
+
 void Navigation::Run() {
   // This function gets called 20 times a second to form the control loop.
 
@@ -556,7 +586,6 @@ void Navigation::Run() {
   if (!odom_initialized_) return;
 
   // Forward predict point_cloud_ and pop top of queue that is too old
-
   while (!controls.empty()) {
     if (!controls.empty() && ((obs_time - controls.front().time) > actuation_latency)) {
       controls.pop_front();
@@ -566,6 +595,14 @@ void Navigation::Run() {
   }
 
   vector<Vector2f> new_cloud = Navigation::forward_predict_cloud(point_cloud_, controls);
+
+  // Scoring
+  float cmax = 0.3;
+  float cstep = 0.01;
+  float w1 = 10.0;
+  vector<PathOption> path_options = Navigation::GeneratePathOptions(new_cloud, cmax, cstep, w1);
+  PathOption best_option = Navigation::ChooseBestPathOption(path_options);
+
   // vector<Vector2f> new_cloud = point_cloud_;
 
   // The control iteration goes here.
@@ -575,8 +612,9 @@ void Navigation::Run() {
 
   // Based on selected curvature (and thus arc lenght), get potential velocity value
 
-  // TODO: REMOVE THESE TEMP VALUES
-  double curvature = 0.0;
+  double curvature = best_option.curvature;
+  std::cout << "***************** CHOSEN Free path length: " << best_option.free_path_length
+            << " Curvature: " << curvature << " *****************" << std::endl;
 
   // TODO: Transform point cloud to baselink frame.
   // Navigation::TransformPointCloudToBaseLink(point_cloud_, offset);

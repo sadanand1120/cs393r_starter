@@ -37,10 +37,11 @@ namespace navigation {
 
 struct PathOption {
   float curvature;
-  float clearance;
+  // float clearance;
   float free_path_length;
-  Eigen::Vector2f obstruction;
-  Eigen::Vector2f closest_point;
+  // Eigen::Vector2f obstruction;
+  // Eigen::Vector2f closest_point;
+  double score;
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
 };
 
@@ -87,6 +88,11 @@ class Navigation {
   void FilterDistances(const Eigen::Vector2f& reference, const std::vector<Eigen::Vector2f>& cloud, float min_dist,
                        float max_dist, std::vector<Eigen::Vector2f>& bucket);
   double MinimumDistanceToObstacle(const std::vector<Eigen::Vector2f>& cloud, double curvature);
+
+  // Path scoring utilites
+  std::vector<PathOption> GeneratePathOptions(const std::vector<Eigen::Vector2f>& new_cloud, float cmax, float cstep,
+                                              float w1);
+  PathOption ChooseBestPathOption(const std::vector<PathOption>& path_options);
 
  private:
   // Whether odometry has been initialized.
