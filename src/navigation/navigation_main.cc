@@ -121,6 +121,9 @@ void OdometryCallback(const nav_msgs::Odometry& msg) {
   if (FLAGS_v > 0) {
     printf("Odometry t=%f\n", msg.header.stamp.toSec());
   }
+  std::cout << "***************************************************************** Odometry Callback"
+            << msg.pose.pose.position.x << " " << msg.pose.pose.position.y << " " << msg.pose.pose.orientation.z << " "
+            << msg.pose.pose.orientation.w << std::endl;
   navigation_->UpdateOdometry(Vector2f(msg.pose.pose.position.x, msg.pose.pose.position.y),
                               2.0 * atan2(msg.pose.pose.orientation.z, msg.pose.pose.orientation.w),
                               Vector2f(msg.twist.twist.linear.x, msg.twist.twist.linear.y), msg.twist.twist.angular.z);
