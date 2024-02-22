@@ -58,7 +58,11 @@ class ParticleFilter {
   // Initialize the robot location.
   void Initialize(const std::string& map_file,
                   const Eigen::Vector2f& loc,
-                  const float angle);
+                  const float angle,
+                  const std::string& hyper_file);
+
+  // Load hyper parameters from a file
+  void LoadHypers(const std::string& hyper_file);
 
   // Return the list of particles.
   void GetParticles(std::vector<Particle>* particles) const;
@@ -102,6 +106,8 @@ class ParticleFilter {
   Eigen::Vector2f prev_odom_loc_;
   float prev_odom_angle_;
   bool odom_initialized_;
+  // Hyperparameters
+  float k1, k2, k3, k4, k5;
 };
 }  // namespace slam
 

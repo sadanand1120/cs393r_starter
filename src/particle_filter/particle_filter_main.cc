@@ -92,6 +92,7 @@ sensor_msgs::LaserScan last_laser_msg_;
 
 vector<Vector2f> trajectory_points_;
 string current_map_;
+string hyper_file;
 
 void InitializeMsgs() {
   std_msgs::Header header;
@@ -221,7 +222,7 @@ void InitCallback(const amrl_msgs::Localization2DMsg& msg) {
          init_loc.x(),
          init_loc.y(),
          RadToDeg(init_angle));
-  particle_filter_.Initialize(map_file, init_loc, init_angle);
+  particle_filter_.Initialize(map_file, init_loc, init_angle, hyper_file);
   trajectory_points_.clear();
 }
 
@@ -241,7 +242,8 @@ void ProcessLive(ros::NodeHandle* n) {
   particle_filter_.Initialize(
       GetMapFileFromName(current_map_),
       Vector2f(CONFIG_init_x_, CONFIG_init_x_),
-      DegToRad(CONFIG_init_r_));
+      DegToRad(CONFIG_init_r_),
+      hyper_file);
   while (ros::ok() && run_) {
     ros::spinOnce();
     PublishVisualization();
@@ -262,6 +264,9 @@ int main(int argc, char** argv) {
   google::ParseCommandLineFlags(&argc, &argv, false);
   signal(SIGINT, SignalHandler);
   // Initialize ROS.
+  if (argc == 2) {
+    hyper_file = argv[1];
+  }
   ros::init(argc, argv, "particle_filter", ros::init_options::NoSigintHandler);
   ros::NodeHandle n;
   InitializeMsgs();

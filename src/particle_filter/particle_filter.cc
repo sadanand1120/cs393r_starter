@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <fstream>
 #include "eigen3/Eigen/Dense"
 #include "eigen3/Eigen/Geometry"
 #include "gflags/gflags.h"
@@ -55,7 +56,7 @@ config_reader::ConfigReader config_reader_({"config/particle_filter.lua"});
 ParticleFilter::ParticleFilter() :
     prev_odom_loc_(0, 0),
     prev_odom_angle_(0),
-    odom_initialized_(false) {}
+    odom_initialized_(false), k1(0),k2(0),k3(0),k4(0),k5(0) {}
 
 void ParticleFilter::GetParticles(vector<Particle>* particles) const {
   *particles = particles_;
@@ -160,22 +161,99 @@ void ParticleFilter::Predict(const Vector2f& odom_loc,
   // Implement the motion model predict step here, to propagate the particles
   // forward based on odometry.
 
+  // We can only start prediction once we have obtained at least 2 odometry
+  // readings.
 
-  // You will need to use the Gaussian random number generator provided. For
-  // example, to generate a random number from a Gaussian with mean 0, and
-  // standard deviation 2:
-  float x = rng_.Gaussian(0.0, 2.0);
-  printf("Random number drawn from Gaussian distribution with 0 mean and "
-         "standard deviation of 2 : %f\n", x);
+  if (!odom_initialized_) {
+    prev_odom_loc_ = odom_loc;
+    prev_odom_angle_ = odom_angle;
+    odom_initialized_ = true;
+    return;
+  }
+
+  // If we get here, then odometry has been initialized
+  Eigen::Rotation2Df r(-prev_odom_angle_);
+  Vector2f delta_T = r*(odom_loc - prev_odom_loc_);
+  float delta_theta = odom_angle - prev_odom_angle_;
+
+  // Motion Model:
+  // Here do thresholding instead for a straightline
+  Vector2f p(0.0,-1.0);
+  Vector2f n(1.0, 0.0);
+  float travel = 0.0;
+  float c = 0.0; // curvature
+  if (delta_T.y() == 0.00) {
+    travel = delta_T.norm();
+    c = 0.0;
+  } else {
+    // Radius of turning; the resulting sign of R matters.
+    float R = 0.5*(math_util::Sq(delta_T.x()) + math_util::Sq(delta_T.y())) / delta_T.y();
+    // Radial vector
+    p = delta_T + Vector2f(0, -R);
+    p.normalize();
+    // Tangent vector
+    n(-p.y(), p.x());
+    // Distance traveled, note that acos returns a value betwee 0 and PI
+    // Multiply by the radius to get distance traveled
+    travel = std::acos(-1.0*math_util::Sign(R)*p.y()) * std::fabs(R);
+    c = 1/R; //curvature
+  }
+
+  // For the predict step, for every particle under consideration, we sample
+  // that particle's motion with respect to the motion model.
+  // Particles are in the map frame
+  Vector2f noisy_T(0,0);
+  for (Particle& part : particles_) {
+    // Create a noisy version of delta_T
+    // Error for travel
+    float ep_n = rng_.Gaussian(0.0, k1*travel + k2*std::fabs(delta_theta));
+    // Error for radius and slip
+    float ep_p = rng_.Gaussian(0.0, k3*c + k4*std::fabs(delta_theta));
+    float ep_theta = rng_.Gaussian(0.0, k5*std::fabs(delta_theta));
+    printf("Tangential Error: %f\n", ep_n);
+    printf("Radial Error: %f\n", ep_p);
+    printf("Angle Error: %f\n", ep_theta);
+
+    noisy_T = delta_T + ep_n*n + ep_p*p;
+
+    part.loc = part.loc + Eigen::Rotation2Df(part.angle)*noisy_T;
+    part.angle = part.angle + delta_theta + ep_theta;
+  }
+
+  // Now, update the odometry info for next time.
+  prev_odom_loc_ = odom_loc;
+  prev_odom_angle_ = odom_angle;
+}
+
+void ParticleFilter::LoadHypers(const string& hyper_file) {
+  std::ifstream file(hyper_file);
+  string line;
+
+  std::getline(file, line);
+  k1 = std::stof(line, NULL);
+  std::getline(file, line);
+  k2 = std::stof(line, NULL);
+  std::getline(file, line);
+  k3 = std::stof(line, NULL);
+  std::getline(file, line);
+  k4 = std::stof(line, NULL);
+  std::getline(file, line);
+  k5 = std::stof(line, NULL);
+  file.close();
+
+  printf("Loaded Hypers from: %s\n", hyper_file.c_str());
+  printf("k1: %f\nk2: %f\nk3: %f\nk4: %f\nk5: %f\n", k1, k2, k3, k4, k5);
 }
 
 void ParticleFilter::Initialize(const string& map_file,
                                 const Vector2f& loc,
-                                const float angle) {
+                                const float angle,
+                                const string& hyper_file) {
   // The "set_pose" button on the GUI was clicked, or an initialization message
   // was received from the log. Initialize the particles accordingly, e.g. with
   // some distribution around the provided location and angle.
   map_.Load(map_file);
+  ParticleFilter::LoadHypers(hyper_file);
 }
 
 void ParticleFilter::GetLocation(Eigen::Vector2f* loc_ptr, 
