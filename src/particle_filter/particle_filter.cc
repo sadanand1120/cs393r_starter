@@ -190,6 +190,7 @@ void ParticleFilter::Update(const std::vector<float>& ranges, float range_min, f
   double logLikelihoodSum = 0.0;
   Eigen::Vector2f laser_offset(0.21, 0);  // Laser offset in the base_link frame
 
+  printf("--------------------------------------------------------------------------------------\n");
   for (unsigned int i = 0; i < ranges.size(); i += lasers_to_skip) {
     float s = ranges[i];  // Observed range
     // Convert predicted point from laser frame back to range
@@ -202,7 +203,11 @@ void ParticleFilter::Update(const std::vector<float>& ranges, float range_min, f
     double logLikelihood = ComputeLogLikelihood(s, pred_s, range_min, range_max, dshort, dlong, sigmas);
     // printf("Log Likelihood: %f\n", logLikelihood);
     logLikelihoodSum += logLikelihood;
+    // print i and loglikelihood sum
+    printf("Laser Index: %d\n", i);
+    printf("Log Likelihood Sum: %f\n", logLikelihoodSum);
   }
+  printf("--------------------------------------------------------------------------------------\n");
 
   // Update the particle's log weight
   p_ptr->logweight = logLikelihoodSum;
@@ -211,10 +216,17 @@ void ParticleFilter::Update(const std::vector<float>& ranges, float range_min, f
 void ParticleFilter::Resample() {
   std::vector<Particle> new_particles;
 
-  // Find the max logweight
+  // // Find the max logweight
+  // double max_logweight = particles_[0].logweight;
+  // for (const Particle& p : particles_) {
+  //   if (p.logweight > max_logweight) {
+  //     max_logweight = p.logweight;
+  //   }
+  // }
+  // Find min logweight
   double max_logweight = particles_[0].logweight;
   for (const Particle& p : particles_) {
-    if (p.logweight > max_logweight) {
+    if (p.logweight < max_logweight) {
       max_logweight = p.logweight;
     }
   }
@@ -223,7 +235,7 @@ void ParticleFilter::Resample() {
   std::vector<double> weights;
   double sum_weights = 0.0;
   for (const Particle& p : particles_) {
-    double weight = exp(p.logweight - max_logweight);  // Convert to linear scale
+    double weight = p.logweight - max_logweight;  // Convert to linear scale
     weights.push_back(weight);
     sum_weights += weight;
   }
@@ -232,6 +244,13 @@ void ParticleFilter::Resample() {
   for (double& weight : weights) {
     weight /= sum_weights;
   }
+
+  // // print weights array
+  // printf("--------------------------------------------------------------------------------------\n");
+  // for (size_t i = 0; i < weights.size(); i++) {
+  //   printf("Weight: %f\n", weights[i]);
+  // }
+  // printf("--------------------------------------------------------------------------------------\n");
 
   // Low Variance Resampling
   int N = particles_.size();
@@ -253,6 +272,13 @@ void ParticleFilter::Resample() {
 
 void ParticleFilter::ObserveLaser(const std::vector<float>& ranges, float range_min, float range_max, float angle_min,
                                   float angle_max, float angle_increment) {
+  // Perform the update step for each particle based on the new laser observation
+  for (Particle& particle : particles_) {
+    Update(ranges, range_min, range_max, angle_min, angle_max, angle_increment, &particle);
+    // print particle weight
+    // printf("Particle Weight: %f\n", particle.logweight);
+  }
+
   // Check if we should skip this update
   if (step_counter_ < obs_update_skip_steps) {
     // Increment step counter and skip this observation
@@ -262,14 +288,6 @@ void ParticleFilter::ObserveLaser(const std::vector<float>& ranges, float range_
 
   // Reset the step counter since we're processing this observation
   step_counter_ = 0;
-
-  // Perform the update step for each particle based on the new laser observation
-  for (Particle& particle : particles_) {
-    Update(ranges, range_min, range_max, angle_min, angle_max, angle_increment, &particle);
-    // print particle weight
-    printf("Particle Weight: %f\n", particle.logweight);
-  }
-  return;
 
   // Resample the particles based on their updated weights
   Resample();
