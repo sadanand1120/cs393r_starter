@@ -114,9 +114,9 @@ void PublishPredictedScan() {
   float robot_angle(0);
   particle_filter_.GetLocation(&robot_loc, &robot_angle);
   vector<Vector2f> predicted_scan;
-  particle_filter_.GetPredictedPointCloud(robot_loc, robot_angle, last_laser_msg_.ranges.size(),
-                                          last_laser_msg_.range_min, last_laser_msg_.range_max,
-                                          last_laser_msg_.angle_min, last_laser_msg_.angle_max, &predicted_scan);
+  particle_filter_.GetPredictedPointCloud(
+      robot_loc, robot_angle, last_laser_msg_.ranges.size(), last_laser_msg_.range_min, last_laser_msg_.range_max,
+      last_laser_msg_.angle_min, last_laser_msg_.angle_max, last_laser_msg_.angle_increment, &predicted_scan);
   for (const Vector2f& p : predicted_scan) {
     DrawPoint(p, kColor, vis_msg_);
   }
@@ -161,7 +161,10 @@ void LaserCallback(const sensor_msgs::LaserScan& msg) {
     printf("Laser t=%f\n", msg.header.stamp.toSec());
   }
   last_laser_msg_ = msg;
-  particle_filter_.ObserveLaser(msg.ranges, msg.range_min, msg.range_max, msg.angle_min, msg.angle_max);
+  // The LaserScan parameters are accessible as follows:
+  // msg.angle_increment // Angular increment between subsequent rays
+  particle_filter_.ObserveLaser(msg.ranges, msg.range_min, msg.range_max, msg.angle_min, msg.angle_max,
+                                msg.angle_increment);
   PublishVisualization();
 }
 

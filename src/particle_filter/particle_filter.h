@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "eigen3/Eigen/Dense"
+#include <yaml-cpp/yaml.h>
 #include "eigen3/Eigen/Geometry"
 #include "shared/math/line2d.h"
 #include "shared/util/random.h"
@@ -36,7 +37,7 @@ namespace particle_filter {
 struct Particle {
   Eigen::Vector2f loc;
   float angle;
-  double weight;
+  double logweight;
 };
 
 class ParticleFilter {
@@ -46,7 +47,7 @@ class ParticleFilter {
 
   // Observe a new laser scan.
   void ObserveLaser(const std::vector<float>& ranges, float range_min, float range_max, float angle_min,
-                    float angle_max);
+                    float angle_max, float angle_increment);
 
   // Predict particle motion based on odometry.
   void Predict(const Eigen::Vector2f& odom_loc, const float odom_angle);
@@ -64,16 +65,21 @@ class ParticleFilter {
   // Get robot's current location.
   void GetLocation(Eigen::Vector2f* loc, float* angle) const;
 
+  // Observation model: compute the log likelihood
+  double ComputeLogLikelihood(double s, double pred_s, double range_min, double range_max, double dshort, double dlong,
+                              double sigmas);
+
   // Update particle weight based on laser.
   void Update(const std::vector<float>& ranges, float range_min, float range_max, float angle_min, float angle_max,
-              Particle* p);
+              float angle_increment, Particle* p);
 
   // Resample particles.
   void Resample();
 
   // For debugging: get predicted point cloud from current location.
   void GetPredictedPointCloud(const Eigen::Vector2f& loc, const float angle, int num_ranges, float range_min,
-                              float range_max, float angle_min, float angle_max, std::vector<Eigen::Vector2f>* scan);
+                              float range_max, float angle_min, float angle_max, float angle_increment,
+                              std::vector<Eigen::Vector2f>* scan);
 
  private:
   // List of particles being tracked.
@@ -89,8 +95,11 @@ class ParticleFilter {
   Eigen::Vector2f prev_odom_loc_;
   float prev_odom_angle_;
   bool odom_initialized_;
-  // Hyperparameters
+
+  // Motion model Hyperparameters
   float k1, k2, k3, k4, k5;
+  int num_particles;
+  YAML::Node hyper_params_;
 };
 }  // namespace particle_filter
 
