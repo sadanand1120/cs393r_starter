@@ -239,6 +239,7 @@ void ParticleFilter::Resample() {
 void ParticleFilter::ObserveLaser(const std::vector<float>& ranges, float range_min, float range_max, float angle_min,
                                   float angle_max, float angle_increment) {
   // Check if we should skip this update
+  return;  // DEBUG
   if (step_counter_ < obs_update_skip_steps) {
     // Increment step counter and skip this observation
     ++step_counter_;
