@@ -23,7 +23,6 @@
 #include <vector>
 
 #include "eigen3/Eigen/Dense"
-#include <yaml-cpp/yaml.h>
 #include "eigen3/Eigen/Geometry"
 #include "shared/math/line2d.h"
 #include "shared/util/random.h"
@@ -45,6 +44,10 @@ class ParticleFilter {
   // Default Constructor.
   ParticleFilter();
 
+  // Set Hparams
+  void SetHparams(float k1, float k2, float k3, float k4, float k5, int num_particles, int num_lasers, float i1,
+                  float i2, float dshort, float dlong, float sigmas, int obs_update_skip_steps);
+
   // Observe a new laser scan.
   void ObserveLaser(const std::vector<float>& ranges, float range_min, float range_max, float angle_min,
                     float angle_max, float angle_increment);
@@ -53,11 +56,7 @@ class ParticleFilter {
   void Predict(const Eigen::Vector2f& odom_loc, const float odom_angle);
 
   // Initialize the robot location.
-  void Initialize(const std::string& map_file, const Eigen::Vector2f& loc, const float angle,
-                  const std::string& hyper_file);
-
-  // Load hyper parameters from a file
-  void LoadHypers(const std::string& hyper_file);
+  void Initialize(const std::string& map_file, const Eigen::Vector2f& loc, const float angle);
 
   // Return the list of particles.
   void GetParticles(std::vector<Particle>* particles) const;
@@ -99,7 +98,10 @@ class ParticleFilter {
   // Motion model Hyperparameters
   float k1, k2, k3, k4, k5;
   int num_particles;
-  YAML::Node hyper_params_;
+  int num_lasers;
+  float i1, i2;
+  float dshort, dlong, sigmas;
+  int obs_update_skip_steps;
   int step_counter_;
 };
 }  // namespace particle_filter

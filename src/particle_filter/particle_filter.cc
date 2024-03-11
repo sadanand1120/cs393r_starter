@@ -23,7 +23,6 @@
 #include <cmath>
 #include <iostream>
 #include <fstream>
-#include <yaml-cpp/yaml.h>
 #include "eigen3/Eigen/Dense"
 #include "eigen3/Eigen/Geometry"
 #include "gflags/gflags.h"
@@ -64,7 +63,32 @@ ParticleFilter::ParticleFilter()
       k4(0),
       k5(0),
       num_particles(50),
+      num_lasers(100),
+      i1(0),
+      i2(0),
+      dshort(0),
+      dlong(0),
+      sigmas(0),
+      obs_update_skip_steps(0),
       step_counter_(0) {}
+
+void ParticleFilter::SetHparams(float _k1, float _k2, float _k3, float _k4, float _k5, int _num_particles,
+                                int _num_lasers, float _i1, float _i2, float _dshort, float _dlong, float _sigmas,
+                                int _obs_update_skip_steps) {
+  k1 = _k1;
+  k2 = _k2;
+  k3 = _k3;
+  k4 = _k4;
+  k5 = _k5;
+  num_particles = _num_particles;
+  num_lasers = _num_lasers;
+  i1 = _i1;
+  i2 = _i2;
+  dshort = _dshort;
+  dlong = _dlong;
+  sigmas = _sigmas;
+  obs_update_skip_steps = _obs_update_skip_steps;
+}
 
 void ParticleFilter::GetParticles(vector<Particle>* particles) const { *particles = particles_; }
 
@@ -78,9 +102,8 @@ void ParticleFilter::GetPredictedPointCloud(const Eigen::Vector2f& loc, const fl
   Eigen::Vector2f laser_offset(0.21, 0);                                       // Laser offset in the base_link frame
   Eigen::Vector2f laser_loc = loc + Eigen::Rotation2Df(angle) * laser_offset;  // Transform to laser location
 
-  // Calculate how many lasers to skip based on hyper_params_["num_lasers"]
-  int lasers_to_skip =
-      std::max(1, num_ranges / hyper_params_["num_lasers"].as<int>());  // Ensure we don't divide by zero or skip none
+  // Calculate how many lasers to skip based on num_lasers
+  int lasers_to_skip = std::max(1, num_ranges / num_lasers);  // Ensure we don't divide by zero or skip none
 
   float current_angle = angle_max;
   for (int i = 0; i < num_ranges; i += lasers_to_skip) {
@@ -148,7 +171,7 @@ void ParticleFilter::Update(const std::vector<float>& ranges, float range_min, f
                          angle_increment, &predictedPointCloud);
 
   // Calculate the number of lasers to skip
-  int lasers_to_skip = std::max(1, static_cast<int>(ranges.size()) / hyper_params_["num_lasers"].as<int>());
+  int lasers_to_skip = std::max(1, static_cast<int>(ranges.size()) / num_lasers);
 
   double logLikelihoodSum = 0.0;
   Eigen::Vector2f laser_offset(0.21, 0);  // Laser offset in the base_link frame
@@ -162,9 +185,7 @@ void ParticleFilter::Update(const std::vector<float>& ranges, float range_min, f
     float pred_s = (predictedPoint - laser_loc).norm();
 
     // Compute log likelihood of observed range given the predicted range
-    double logLikelihood =
-        ComputeLogLikelihood(s, pred_s, range_min, range_max, hyper_params_["obs_model"]["dshort"].as<double>(),
-                             hyper_params_["obs_model"]["dlong"].as<double>(), hyper_params_["obs_model"]["sigmas"].as<double>());
+    double logLikelihood = ComputeLogLikelihood(s, pred_s, range_min, range_max, dshort, dlong, sigmas);
     logLikelihoodSum += logLikelihood;
   }
 
@@ -218,7 +239,7 @@ void ParticleFilter::Resample() {
 void ParticleFilter::ObserveLaser(const std::vector<float>& ranges, float range_min, float range_max, float angle_min,
                                   float angle_max, float angle_increment) {
   // Check if we should skip this update
-  if (step_counter_ < hyper_params_["obs_update_skip_steps"].as<int>()) {
+  if (step_counter_ < obs_update_skip_steps) {
     // Increment step counter and skip this observation
     ++step_counter_;
     return;
@@ -306,29 +327,11 @@ void ParticleFilter::Predict(const Vector2f& odom_loc, const float odom_angle) {
   prev_odom_angle_ = odom_angle;
 }
 
-void ParticleFilter::LoadHypers(const string& hyper_file) {
-  YAML::Node config = YAML::LoadFile(hyper_file);
-
-  k1 = config["motion_model"]["k1"].as<float>();
-  k2 = config["motion_model"]["k2"].as<float>();
-  k3 = config["motion_model"]["k3"].as<float>();
-  k4 = config["motion_model"]["k4"].as<float>();
-  k5 = config["motion_model"]["k5"].as<float>();
-  num_particles = config["num_particles"].as<int>();
-  // Use the rest dynamically
-  hyper_params_ = config;
-
-  printf("Loaded Hypers from: %s\n", hyper_file.c_str());
-  printf("k1: %f\nk2: %f\nk3: %f\nk4: %f\nk5: %f\n", k1, k2, k3, k4, k5);
-}
-
-void ParticleFilter::Initialize(const string& map_file, const Vector2f& loc, const float angle,
-                                const string& hyper_file) {
+void ParticleFilter::Initialize(const string& map_file, const Vector2f& loc, const float angle) {
   // The "set_pose" button on the GUI was clicked, or an initialization message
   // was received from the log. Initialize the particles accordingly, e.g. with
   // some distribution around the provided location and angle.
   map_.Load(map_file);
-  ParticleFilter::LoadHypers(hyper_file);
 
   // Reset the particles vector (clear pointers)
   particles_.clear();
@@ -338,9 +341,8 @@ void ParticleFilter::Initialize(const string& map_file, const Vector2f& loc, con
   for (int i = 0; i < num_particles; ++i) {
     Particle p;
     // Assuming loc and angle are means of the distributions
-    p.loc = loc + Eigen::Vector2f(rng_.Gaussian(0, std::sqrt(hyper_params_["init"]["i1"].as<double>())),
-                                  rng_.Gaussian(0, std::sqrt(hyper_params_["init"]["i1"].as<double>())));
-    p.angle = angle + rng_.Gaussian(0, std::sqrt(hyper_params_["init"]["i2"].as<double>()));
+    p.loc = loc + Eigen::Vector2f(rng_.Gaussian(0, std::sqrt(i1)), rng_.Gaussian(0, std::sqrt(i1)));
+    p.angle = angle + rng_.Gaussian(0, std::sqrt(i2));
     p.logweight = log(1.0 / num_particles);  // Initially, all particles have the same weight
 
     particles_.push_back(p);

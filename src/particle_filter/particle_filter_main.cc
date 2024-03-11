@@ -77,6 +77,19 @@ CONFIG_STRING(map_name_, "map");
 CONFIG_FLOAT(init_x_, "init_x");
 CONFIG_FLOAT(init_y_, "init_y");
 CONFIG_FLOAT(init_r_, "init_r");
+CONFIG_FLOAT(k1_, "k1");
+CONFIG_FLOAT(k2_, "k2");
+CONFIG_FLOAT(k3_, "k3");
+CONFIG_FLOAT(k4_, "k4");
+CONFIG_FLOAT(k5_, "k5");
+CONFIG_INT(num_particles_, "num_particles");
+CONFIG_INT(num_lasers_, "num_lasers");
+CONFIG_FLOAT(i1_, "i1");
+CONFIG_FLOAT(i2_, "i2");
+CONFIG_FLOAT(dshort_, "dshort");
+CONFIG_FLOAT(dlong_, "dlong");
+CONFIG_FLOAT(sigmas_, "sigmas");
+CONFIG_INT(obs_update_skip_steps_, "obs_update_skip_steps");
 config_reader::ConfigReader config_reader_({"config/particle_filter.lua"});
 
 bool run_ = true;
@@ -90,7 +103,6 @@ sensor_msgs::LaserScan last_laser_msg_;
 
 vector<Vector2f> trajectory_points_;
 string current_map_;
-string hyper_file;
 
 void InitializeMsgs() {
   std_msgs::Header header;
@@ -202,7 +214,7 @@ void InitCallback(const amrl_msgs::Localization2DMsg& msg) {
   current_map_ = msg.map;
   const string map_file = GetMapFileFromName(current_map_);
   printf("Initialize: %s (%f,%f) %f\u00b0\n", current_map_.c_str(), init_loc.x(), init_loc.y(), RadToDeg(init_angle));
-  particle_filter_.Initialize(map_file, init_loc, init_angle, hyper_file);
+  particle_filter_.Initialize(map_file, init_loc, init_angle);
   trajectory_points_.clear();
 }
 
@@ -211,7 +223,10 @@ void ProcessLive(ros::NodeHandle* n) {
   ros::Subscriber laser_sub = n->subscribe(FLAGS_laser_topic.c_str(), 1, LaserCallback);
   ros::Subscriber odom_sub = n->subscribe(FLAGS_odom_topic.c_str(), 1, OdometryCallback);
   particle_filter_.Initialize(GetMapFileFromName(current_map_), Vector2f(CONFIG_init_x_, CONFIG_init_x_),
-                              DegToRad(CONFIG_init_r_), hyper_file);
+                              DegToRad(CONFIG_init_r_));
+  particle_filter_.SetHparams(CONFIG_k1_, CONFIG_k2_, CONFIG_k3_, CONFIG_k4_, CONFIG_k5_, CONFIG_num_particles_,
+                              CONFIG_num_lasers_, CONFIG_i1_, CONFIG_i2_, CONFIG_dshort_, CONFIG_dlong_, CONFIG_sigmas_,
+                              CONFIG_obs_update_skip_steps_);
   while (ros::ok() && run_) {
     ros::spinOnce();
     PublishVisualization();
@@ -232,9 +247,6 @@ int main(int argc, char** argv) {
   google::ParseCommandLineFlags(&argc, &argv, false);
   signal(SIGINT, SignalHandler);
   // Initialize ROS.
-  if (argc == 2) {
-    hyper_file = argv[1];
-  }
   ros::init(argc, argv, "particle_filter", ros::init_options::NoSigintHandler);
   ros::NodeHandle n;
   InitializeMsgs();
