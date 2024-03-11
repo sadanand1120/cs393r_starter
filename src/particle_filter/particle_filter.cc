@@ -80,7 +80,7 @@ void ParticleFilter::GetPredictedPointCloud(const Eigen::Vector2f& loc, const fl
 
   // Calculate how many lasers to skip based on hyper_params_["num_lasers"]
   int lasers_to_skip =
-      std::max(1, num_ranges / hyper_params_["num_lasers"]);  // Ensure we don't divide by zero or skip none
+      std::max(1, num_ranges / hyper_params_["num_lasers"].as<int>());  // Ensure we don't divide by zero or skip none
 
   float current_angle = angle_max;
   for (int i = 0; i < num_ranges; i += lasers_to_skip) {
@@ -148,12 +148,12 @@ void ParticleFilter::Update(const std::vector<float>& ranges, float range_min, f
                          angle_increment, &predictedPointCloud);
 
   // Calculate the number of lasers to skip
-  int lasers_to_skip = std::max(1, static_cast<int>(ranges.size()) / hyper_params_["num_lasers"]);
+  int lasers_to_skip = std::max(1, static_cast<int>(ranges.size()) / hyper_params_["num_lasers"].as<int>());
 
   double logLikelihoodSum = 0.0;
   Eigen::Vector2f laser_offset(0.21, 0);  // Laser offset in the base_link frame
 
-  for (int i = 0; i < ranges.size(); i += lasers_to_skip) {
+  for (unsigned int i = 0; i < ranges.size(); i += lasers_to_skip) {
     float s = ranges[i];  // Observed range
     // Convert predicted point from laser frame back to range
     Eigen::Vector2f predictedPoint = predictedPointCloud[i / lasers_to_skip];
@@ -163,8 +163,8 @@ void ParticleFilter::Update(const std::vector<float>& ranges, float range_min, f
 
     // Compute log likelihood of observed range given the predicted range
     double logLikelihood =
-        ComputeLogLikelihood(s, pred_s, range_min, range_max, hyper_params_["obs_model"]["dshort"],
-                             hyper_params_["obs_model"]["dlong"], hyper_params_["obs_model"]["sigmas"]);
+        ComputeLogLikelihood(s, pred_s, range_min, range_max, hyper_params_["obs_model"]["dshort"].as<double>(),
+                             hyper_params_["obs_model"]["dlong"].as<double>(), hyper_params_["obs_model"]["sigmas"].as<double>());
     logLikelihoodSum += logLikelihood;
   }
 
@@ -218,7 +218,7 @@ void ParticleFilter::Resample() {
 void ParticleFilter::ObserveLaser(const std::vector<float>& ranges, float range_min, float range_max, float angle_min,
                                   float angle_max, float angle_increment) {
   // Check if we should skip this update
-  if (step_counter_ < hyper_params_["obs_update_skip_steps"]) {
+  if (step_counter_ < hyper_params_["obs_update_skip_steps"].as<int>()) {
     // Increment step counter and skip this observation
     ++step_counter_;
     return;
@@ -234,12 +234,6 @@ void ParticleFilter::ObserveLaser(const std::vector<float>& ranges, float range_
 
   // Resample the particles based on their updated weights
   Resample();
-}
-
-void ParticleFilter::ObserveLaser(const vector<float>& ranges, float range_min, float range_max, float angle_min,
-                                  float angle_max, float angle_increment) {
-  // A new laser scan observation is available (in the laser frame)
-  // Call the Update and Resample steps as necessary.
 }
 
 void ParticleFilter::Predict(const Vector2f& odom_loc, const float odom_angle) {
@@ -344,9 +338,9 @@ void ParticleFilter::Initialize(const string& map_file, const Vector2f& loc, con
   for (int i = 0; i < num_particles; ++i) {
     Particle p;
     // Assuming loc and angle are means of the distributions
-    p.loc = loc + Eigen::Vector2f(rng_.Gaussian(0, std::sqrt(hyper_params_["init"]["i1"])),
-                                  rng_.Gaussian(0, std::sqrt(hyper_params_["init"]["i1"])));
-    p.angle = angle + rng_.Gaussian(0, std::sqrt(hyper_params_["init"]["i2"]));
+    p.loc = loc + Eigen::Vector2f(rng_.Gaussian(0, std::sqrt(hyper_params_["init"]["i1"].as<double>())),
+                                  rng_.Gaussian(0, std::sqrt(hyper_params_["init"]["i1"].as<double>())));
+    p.angle = angle + rng_.Gaussian(0, std::sqrt(hyper_params_["init"]["i2"].as<double>()));
     p.logweight = log(1.0 / num_particles);  // Initially, all particles have the same weight
 
     particles_.push_back(p);
