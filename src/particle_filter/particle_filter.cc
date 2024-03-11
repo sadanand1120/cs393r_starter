@@ -23,6 +23,7 @@
 #include <cmath>
 #include <iostream>
 #include <fstream>
+#include <yaml-cpp/yaml.h>
 #include "eigen3/Eigen/Dense"
 #include "eigen3/Eigen/Geometry"
 #include "gflags/gflags.h"
@@ -37,14 +38,14 @@
 
 #include "vector_map/vector_map.h"
 
+using Eigen::Vector2f;
+using Eigen::Vector2i;
 using geometry::line2f;
 using std::cout;
 using std::endl;
 using std::string;
 using std::swap;
 using std::vector;
-using Eigen::Vector2f;
-using Eigen::Vector2i;
 using vector_map::VectorMap;
 
 DEFINE_double(num_particles, 50, "Number of particles");
@@ -53,22 +54,13 @@ namespace particle_filter {
 
 config_reader::ConfigReader config_reader_({"config/particle_filter.lua"});
 
-ParticleFilter::ParticleFilter() :
-    prev_odom_loc_(0, 0),
-    prev_odom_angle_(0),
-    odom_initialized_(false), k1(0),k2(0),k3(0),k4(0),k5(0) {}
+ParticleFilter::ParticleFilter()
+    : prev_odom_loc_(0, 0), prev_odom_angle_(0), odom_initialized_(false), k1(0), k2(0), k3(0), k4(0), k5(0) {}
 
-void ParticleFilter::GetParticles(vector<Particle>* particles) const {
-  *particles = particles_;
-}
+void ParticleFilter::GetParticles(vector<Particle>* particles) const { *particles = particles_; }
 
-void ParticleFilter::GetPredictedPointCloud(const Vector2f& loc,
-                                            const float angle,
-                                            int num_ranges,
-                                            float range_min,
-                                            float range_max,
-                                            float angle_min,
-                                            float angle_max,
+void ParticleFilter::GetPredictedPointCloud(const Vector2f& loc, const float angle, int num_ranges, float range_min,
+                                            float range_max, float angle_min, float angle_max,
                                             vector<Vector2f>* scan_ptr) {
   vector<Vector2f>& scan = *scan_ptr;
   // Compute what the predicted point cloud would be, if the car was at the pose
@@ -90,36 +82,26 @@ void ParticleFilter::GetPredictedPointCloud(const Vector2f& loc,
     const line2f map_line = map_.lines[i];
     // The line2f class has helper functions that will be useful.
     // You can create a new line segment instance as follows, for :
-    line2f my_line(1, 2, 3, 4); // Line segment from (1,2) to (3.4).
+    line2f my_line(1, 2, 3, 4);  // Line segment from (1,2) to (3.4).
     // Access the end points using `.p0` and `.p1` members:
-    printf("P0: %f, %f P1: %f,%f\n", 
-           my_line.p0.x(),
-           my_line.p0.y(),
-           my_line.p1.x(),
-           my_line.p1.y());
+    printf("P0: %f, %f P1: %f,%f\n", my_line.p0.x(), my_line.p0.y(), my_line.p1.x(), my_line.p1.y());
 
     // Check for intersections:
     bool intersects = map_line.Intersects(my_line);
     // You can also simultaneously check for intersection, and return the point
     // of intersection:
-    Vector2f intersection_point; // Return variable
+    Vector2f intersection_point;  // Return variable
     intersects = map_line.Intersection(my_line, &intersection_point);
     if (intersects) {
-      printf("Intersects at %f,%f\n", 
-             intersection_point.x(),
-             intersection_point.y());
+      printf("Intersects at %f,%f\n", intersection_point.x(), intersection_point.y());
     } else {
       printf("No intersection\n");
     }
   }
 }
 
-void ParticleFilter::Update(const vector<float>& ranges,
-                            float range_min,
-                            float range_max,
-                            float angle_min,
-                            float angle_max,
-                            Particle* p_ptr) {
+void ParticleFilter::Update(const vector<float>& ranges, float range_min, float range_max, float angle_min,
+                            float angle_max, Particle* p_ptr) {
   // Implement the update step of the particle filter here.
   // You will have to use the `GetPredictedPointCloud` to predict the expected
   // observations for each particle, and assign weights to the particles based
@@ -129,11 +111,11 @@ void ParticleFilter::Update(const vector<float>& ranges,
 
 void ParticleFilter::Resample() {
   // Resample the particles, proportional to their weights.
-  // The current particles are in the `particles_` variable. 
+  // The current particles are in the `particles_` variable.
   // Create a variable to store the new particles, and when done, replace the
   // old set of particles:
   // vector<Particle> new_particles';
-  // During resampling: 
+  // During resampling:
   //    new_particles.push_back(...)
   // After resampling:
   // particles_ = new_particles;
@@ -141,21 +123,16 @@ void ParticleFilter::Resample() {
   // You will need to use the uniform random number generator provided. For
   // example, to generate a random number between 0 and 1:
   float x = rng_.UniformRandom(0, 1);
-  printf("Random number drawn from uniform distribution between 0 and 1: %f\n",
-         x);
+  printf("Random number drawn from uniform distribution between 0 and 1: %f\n", x);
 }
 
-void ParticleFilter::ObserveLaser(const vector<float>& ranges,
-                                  float range_min,
-                                  float range_max,
-                                  float angle_min,
+void ParticleFilter::ObserveLaser(const vector<float>& ranges, float range_min, float range_max, float angle_min,
                                   float angle_max) {
   // A new laser scan observation is available (in the laser frame)
   // Call the Update and Resample steps as necessary.
 }
 
-void ParticleFilter::Predict(const Vector2f& odom_loc,
-                             const float odom_angle) {
+void ParticleFilter::Predict(const Vector2f& odom_loc, const float odom_angle) {
   // Implement the predict step of the particle filter here.
   // A new odometry value is available (in the odom frame)
   // Implement the motion model predict step here, to propagate the particles
@@ -173,21 +150,21 @@ void ParticleFilter::Predict(const Vector2f& odom_loc,
 
   // If we get here, then odometry has been initialized
   Eigen::Rotation2Df r(-prev_odom_angle_);
-  Vector2f delta_T = r*(odom_loc - prev_odom_loc_);
+  Vector2f delta_T = r * (odom_loc - prev_odom_loc_);
   float delta_theta = odom_angle - prev_odom_angle_;
 
   // Motion Model:
   // Here do thresholding instead for a straightline
-  Vector2f p(0.0,-1.0);
+  Vector2f p(0.0, -1.0);
   Vector2f n(1.0, 0.0);
   float travel = 0.0;
-  float c = 0.0; // curvature
+  float c = 0.0;  // curvature
   if (delta_T.y() == 0.00) {
     travel = delta_T.norm();
     c = 0.0;
   } else {
     // Radius of turning; the resulting sign of R matters.
-    float R = 0.5*(math_util::Sq(delta_T.x()) + math_util::Sq(delta_T.y())) / delta_T.y();
+    float R = 0.5 * (math_util::Sq(delta_T.x()) + math_util::Sq(delta_T.y())) / delta_T.y();
     // Radial vector
     p = delta_T + Vector2f(0, -R);
     p.normalize();
@@ -195,28 +172,28 @@ void ParticleFilter::Predict(const Vector2f& odom_loc,
     n(-p.y(), p.x());
     // Distance traveled, note that acos returns a value betwee 0 and PI
     // Multiply by the radius to get distance traveled
-    travel = std::acos(-1.0*math_util::Sign(R)*p.y()) * std::fabs(R);
-    c = 1/R; //curvature
+    travel = std::acos(-1.0 * math_util::Sign(R) * p.y()) * std::fabs(R);
+    c = 1 / R;  // curvature
   }
 
   // For the predict step, for every particle under consideration, we sample
   // that particle's motion with respect to the motion model.
   // Particles are in the map frame
-  Vector2f noisy_T(0,0);
+  Vector2f noisy_T(0, 0);
   for (Particle& part : particles_) {
     // Create a noisy version of delta_T
     // Error for travel
-    float ep_n = rng_.Gaussian(0.0, k1*travel + k2*std::fabs(delta_theta));
+    float ep_n = rng_.Gaussian(0.0, k1 * travel + k2 * std::fabs(delta_theta));
     // Error for radius and slip
-    float ep_p = rng_.Gaussian(0.0, k3*c + k4*std::fabs(delta_theta));
-    float ep_theta = rng_.Gaussian(0.0, k5*std::fabs(delta_theta));
+    float ep_p = rng_.Gaussian(0.0, k3 * c + k4 * std::fabs(delta_theta));
+    float ep_theta = rng_.Gaussian(0.0, k5 * std::fabs(delta_theta));
     printf("Tangential Error: %f\n", ep_n);
     printf("Radial Error: %f\n", ep_p);
     printf("Angle Error: %f\n", ep_theta);
 
-    noisy_T = delta_T + ep_n*n + ep_p*p;
+    noisy_T = delta_T + ep_n * n + ep_p * p;
 
-    part.loc = part.loc + Eigen::Rotation2Df(part.angle)*noisy_T;
+    part.loc = part.loc + Eigen::Rotation2Df(part.angle) * noisy_T;
     part.angle = part.angle + delta_theta + ep_theta;
   }
 
@@ -226,28 +203,19 @@ void ParticleFilter::Predict(const Vector2f& odom_loc,
 }
 
 void ParticleFilter::LoadHypers(const string& hyper_file) {
-  std::ifstream file(hyper_file);
-  string line;
+  YAML::Node config = YAML::LoadFile(hyper_file);
 
-  std::getline(file, line);
-  k1 = std::stof(line, NULL);
-  std::getline(file, line);
-  k2 = std::stof(line, NULL);
-  std::getline(file, line);
-  k3 = std::stof(line, NULL);
-  std::getline(file, line);
-  k4 = std::stof(line, NULL);
-  std::getline(file, line);
-  k5 = std::stof(line, NULL);
-  file.close();
+  k1 = config["motion_model"]["k1"].as<float>();
+  k2 = config["motion_model"]["k2"].as<float>();
+  k3 = config["motion_model"]["k3"].as<float>();
+  k4 = config["motion_model"]["k4"].as<float>();
+  k5 = config["motion_model"]["k5"].as<float>();
 
   printf("Loaded Hypers from: %s\n", hyper_file.c_str());
   printf("k1: %f\nk2: %f\nk3: %f\nk4: %f\nk5: %f\n", k1, k2, k3, k4, k5);
 }
 
-void ParticleFilter::Initialize(const string& map_file,
-                                const Vector2f& loc,
-                                const float angle,
+void ParticleFilter::Initialize(const string& map_file, const Vector2f& loc, const float angle,
                                 const string& hyper_file) {
   // The "set_pose" button on the GUI was clicked, or an initialization message
   // was received from the log. Initialize the particles accordingly, e.g. with
@@ -256,8 +224,7 @@ void ParticleFilter::Initialize(const string& map_file,
   ParticleFilter::LoadHypers(hyper_file);
 }
 
-void ParticleFilter::GetLocation(Eigen::Vector2f* loc_ptr, 
-                                 float* angle_ptr) const {
+void ParticleFilter::GetLocation(Eigen::Vector2f* loc_ptr, float* angle_ptr) const {
   Vector2f& loc = *loc_ptr;
   float& angle = *angle_ptr;
   // Compute the best estimate of the robot's location based on the current set
@@ -266,6 +233,5 @@ void ParticleFilter::GetLocation(Eigen::Vector2f* loc_ptr,
   loc = Vector2f(0, 0);
   angle = 0;
 }
-
 
 }  // namespace particle_filter

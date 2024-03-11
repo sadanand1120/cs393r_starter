@@ -51,26 +51,24 @@
 #include "visualization/visualization.h"
 
 using amrl_msgs::VisualizationMsg;
-using geometry::line2f;
+using Eigen::Vector2f;
 using geometry::Line;
+using geometry::line2f;
 using math_util::DegToRad;
 using math_util::RadToDeg;
 using ros::Time;
 using std::string;
 using std::vector;
-using Eigen::Vector2f;
 using visualization::ClearVisualizationMsg;
 using visualization::DrawArc;
-using visualization::DrawPoint;
 using visualization::DrawLine;
 using visualization::DrawParticle;
+using visualization::DrawPoint;
 
 // Create command line arguements
 DEFINE_string(laser_topic, "/scan", "Name of ROS topic for LIDAR data");
 DEFINE_string(odom_topic, "/odom", "Name of ROS topic for odometry data");
-DEFINE_string(init_topic,
-              "/set_pose",
-              "Name of ROS topic for initialization");
+DEFINE_string(init_topic, "/set_pose", "Name of ROS topic for initialization");
 
 DECLARE_int32(v);
 
@@ -116,15 +114,9 @@ void PublishPredictedScan() {
   float robot_angle(0);
   particle_filter_.GetLocation(&robot_loc, &robot_angle);
   vector<Vector2f> predicted_scan;
-  particle_filter_.GetPredictedPointCloud(
-      robot_loc,
-      robot_angle,
-      last_laser_msg_.ranges.size(),
-      last_laser_msg_.range_min,
-      last_laser_msg_.range_max,
-      last_laser_msg_.angle_min,
-      last_laser_msg_.angle_max,
-      &predicted_scan);
+  particle_filter_.GetPredictedPointCloud(robot_loc, robot_angle, last_laser_msg_.ranges.size(),
+                                          last_laser_msg_.range_min, last_laser_msg_.range_max,
+                                          last_laser_msg_.angle_min, last_laser_msg_.angle_max, &predicted_scan);
   for (const Vector2f& p : predicted_scan) {
     DrawPoint(p, kColor, vis_msg_);
   }
@@ -136,20 +128,15 @@ void PublishTrajectory() {
   float robot_angle(0);
   particle_filter_.GetLocation(&robot_loc, &robot_angle);
   static Vector2f last_loc_(0, 0);
-  if (!trajectory_points_.empty() &&
-      (last_loc_ - robot_loc).squaredNorm() > Sq(1.5)) {
+  if (!trajectory_points_.empty() && (last_loc_ - robot_loc).squaredNorm() > Sq(1.5)) {
     trajectory_points_.clear();
   }
-  if (trajectory_points_.empty() ||
-      (robot_loc - last_loc_).squaredNorm() > 0.25) {
+  if (trajectory_points_.empty() || (robot_loc - last_loc_).squaredNorm() > 0.25) {
     trajectory_points_.push_back(robot_loc);
     last_loc_ = robot_loc;
   }
   for (size_t i = 0; i + 1 < trajectory_points_.size(); ++i) {
-    DrawLine(trajectory_points_[i],
-             trajectory_points_[i + 1],
-             kColor,
-             vis_msg_);
+    DrawLine(trajectory_points_[i], trajectory_points_[i + 1], kColor, vis_msg_);
   }
 }
 
@@ -174,12 +161,7 @@ void LaserCallback(const sensor_msgs::LaserScan& msg) {
     printf("Laser t=%f\n", msg.header.stamp.toSec());
   }
   last_laser_msg_ = msg;
-  particle_filter_.ObserveLaser(
-      msg.ranges,
-      msg.range_min,
-      msg.range_max,
-      msg.angle_min,
-      msg.angle_max);
+  particle_filter_.ObserveLaser(msg.ranges, msg.range_min, msg.range_max, msg.angle_min, msg.angle_max);
   PublishVisualization();
 }
 
@@ -200,8 +182,7 @@ void OdometryCallback(const nav_msgs::Odometry& msg) {
     printf("Odometry t=%f\n", msg.header.stamp.toSec());
   }
   const Vector2f odom_loc(msg.pose.pose.position.x, msg.pose.pose.position.y);
-  const float odom_angle =
-      2.0 * atan2(msg.pose.pose.orientation.z, msg.pose.pose.orientation.w);
+  const float odom_angle = 2.0 * atan2(msg.pose.pose.orientation.z, msg.pose.pose.orientation.w);
   particle_filter_.Predict(odom_loc, odom_angle);
   PublishLocation();
   PublishVisualization();
@@ -217,33 +198,17 @@ void InitCallback(const amrl_msgs::Localization2DMsg& msg) {
   const float init_angle = msg.pose.theta;
   current_map_ = msg.map;
   const string map_file = GetMapFileFromName(current_map_);
-  printf("Initialize: %s (%f,%f) %f\u00b0\n",
-         current_map_.c_str(),
-         init_loc.x(),
-         init_loc.y(),
-         RadToDeg(init_angle));
+  printf("Initialize: %s (%f,%f) %f\u00b0\n", current_map_.c_str(), init_loc.x(), init_loc.y(), RadToDeg(init_angle));
   particle_filter_.Initialize(map_file, init_loc, init_angle, hyper_file);
   trajectory_points_.clear();
 }
 
 void ProcessLive(ros::NodeHandle* n) {
-  ros::Subscriber initial_pose_sub = n->subscribe(
-      FLAGS_init_topic.c_str(),
-      1,
-      InitCallback);
-  ros::Subscriber laser_sub = n->subscribe(
-      FLAGS_laser_topic.c_str(),
-      1,
-      LaserCallback);
-  ros::Subscriber odom_sub = n->subscribe(
-      FLAGS_odom_topic.c_str(),
-      1,
-      OdometryCallback);
-  particle_filter_.Initialize(
-      GetMapFileFromName(current_map_),
-      Vector2f(CONFIG_init_x_, CONFIG_init_x_),
-      DegToRad(CONFIG_init_r_),
-      hyper_file);
+  ros::Subscriber initial_pose_sub = n->subscribe(FLAGS_init_topic.c_str(), 1, InitCallback);
+  ros::Subscriber laser_sub = n->subscribe(FLAGS_laser_topic.c_str(), 1, LaserCallback);
+  ros::Subscriber odom_sub = n->subscribe(FLAGS_odom_topic.c_str(), 1, OdometryCallback);
+  particle_filter_.Initialize(GetMapFileFromName(current_map_), Vector2f(CONFIG_init_x_, CONFIG_init_x_),
+                              DegToRad(CONFIG_init_r_), hyper_file);
   while (ros::ok() && run_) {
     ros::spinOnce();
     PublishVisualization();
@@ -272,12 +237,9 @@ int main(int argc, char** argv) {
   InitializeMsgs();
   current_map_ = CONFIG_map_name_;
 
-  visualization_publisher_ =
-      n.advertise<VisualizationMsg>("visualization", 1);
-  localization_publisher_ =
-      n.advertise<amrl_msgs::Localization2DMsg>("localization", 1);
-  laser_publisher_ =
-      n.advertise<sensor_msgs::LaserScan>("scan", 1);
+  visualization_publisher_ = n.advertise<VisualizationMsg>("visualization", 1);
+  localization_publisher_ = n.advertise<amrl_msgs::Localization2DMsg>("localization", 1);
+  laser_publisher_ = n.advertise<sensor_msgs::LaserScan>("scan", 1);
 
   ProcessLive(&n);
 
