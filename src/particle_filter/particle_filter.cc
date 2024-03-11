@@ -117,26 +117,39 @@ void ParticleFilter::GetPredictedPointCloud(const Eigen::Vector2f& loc, const fl
     Eigen::Vector2f ray_dir(std::cos(current_angle + angle), std::sin(current_angle + angle));
     Eigen::Vector2f max_point = laser_loc + ray_dir * range_max;  // End point of the laser ray at max range
 
-    float min_distance = range_max * 2;  // Initialize with a value beyond the maximum range
+    bool found_intersection = false;
+    float min_distance = range_max * 2;  // Initialize with a value beyond the maximum range for no intersection
 
     // Iterate over all line segments in the map to find the closest intersection
     for (const auto& map_line : map_.lines) {
       Eigen::Vector2f intersection_point;
       if (map_line.Intersection(line2f(laser_loc, max_point), &intersection_point)) {
         float distance = (intersection_point - laser_loc).norm();
-        if (distance < min_distance && distance >= range_min) {
-          min_distance = distance;
+        if (distance >= range_min && distance <= range_max) {
+          min_distance = std::min(min_distance, distance);
+          found_intersection = true;
         }
       }
     }
 
-    // Set the distance for this laser ray in the scan
-    // For rays with no intersection found, we've initialized min_distance to 2 * range_max
-    Eigen::Vector2f scan_point =
-        laser_loc +
-        ray_dir * std::min(min_distance,
-                           range_max);      // Use min_distance directly, capped at range_max for valid intersections
-    scan[i / lasers_to_skip] = scan_point;  // Adjust index in scan vector based on skipped lasers
+    if (!found_intersection) {
+      // Set to a default value if no intersection is found
+      min_distance = 10 * range_max;
+    } else if (min_distance > range_max) {
+      // Truncate the distance to within the [range_min, range_max] range if it's outside
+      min_distance = range_max;
+    } else if (min_distance < range_min) {
+      // Truncate the distance to within the [range_min, range_max] range if it's outside
+      min_distance = range_min;
+    }
+
+    if (!found_intersection) {
+      Eigen::Vector2f scan_point = loc;
+      scan[i / lasers_to_skip] = scan_point;  // Store the scan point at the adjusted index based on skipped lasers
+    } else {
+      Eigen::Vector2f scan_point = laser_loc + ray_dir * min_distance;
+      scan[i / lasers_to_skip] = scan_point;  // Store the scan point at the adjusted index based on skipped lasers
+    }
   }
 }
 
