@@ -100,6 +100,7 @@ class ParticleFilter {
   float k1, k2, k3, k4, k5;
   int num_particles;
   YAML::Node hyper_params_;
+  int step_counter_;
 };
 }  // namespace particle_filter
 

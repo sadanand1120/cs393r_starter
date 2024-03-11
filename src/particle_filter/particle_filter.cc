@@ -63,7 +63,8 @@ ParticleFilter::ParticleFilter()
       k3(0),
       k4(0),
       k5(0),
-      num_particles(50) {}
+      num_particles(50),
+      step_counter_(0) {}
 
 void ParticleFilter::GetParticles(vector<Particle>* particles) const { *particles = particles_; }
 
@@ -172,20 +173,67 @@ void ParticleFilter::Update(const std::vector<float>& ranges, float range_min, f
 }
 
 void ParticleFilter::Resample() {
-  // Resample the particles, proportional to their weights.
-  // The current particles are in the `particles_` variable.
-  // Create a variable to store the new particles, and when done, replace the
-  // old set of particles:
-  // vector<Particle> new_particles';
-  // During resampling:
-  //    new_particles.push_back(...)
-  // After resampling:
-  // particles_ = new_particles;
+  std::vector<Particle> new_particles;
 
-  // You will need to use the uniform random number generator provided. For
-  // example, to generate a random number between 0 and 1:
-  float x = rng_.UniformRandom(0, 1);
-  printf("Random number drawn from uniform distribution between 0 and 1: %f\n", x);
+  // Find the max logweight
+  double max_logweight = particles_[0].logweight;
+  for (const Particle& p : particles_) {
+    if (p.logweight > max_logweight) {
+      max_logweight = p.logweight;
+    }
+  }
+
+  // Normalize logweights by subtracting max_logweight and convert to linear scale
+  std::vector<double> weights;
+  double sum_weights = 0.0;
+  for (const Particle& p : particles_) {
+    double weight = exp(p.logweight - max_logweight);  // Convert to linear scale
+    weights.push_back(weight);
+    sum_weights += weight;
+  }
+
+  // Renormalize weights to sum to 1
+  for (double& weight : weights) {
+    weight /= sum_weights;
+  }
+
+  // Low Variance Resampling
+  int N = particles_.size();
+  double r = rng_.UniformRandom(0, 1.0 / N);
+  double c = weights[0];
+  double increment = 1.0 / N;
+  int i = 0;
+  for (int m = 0; m < N; ++m) {
+    double U = r + m * increment;
+    while (U > c) {
+      i = i + 1;
+      c = c + weights[i];
+    }
+    new_particles.push_back(particles_[i]);
+  }
+
+  particles_ = new_particles;  // Replace the old particles with the new resampled particles
+}
+
+void ParticleFilter::ObserveLaser(const std::vector<float>& ranges, float range_min, float range_max, float angle_min,
+                                  float angle_max, float angle_increment) {
+  // Check if we should skip this update
+  if (step_counter_ < hyper_params_["obs_update_skip_steps"]) {
+    // Increment step counter and skip this observation
+    ++step_counter_;
+    return;
+  }
+
+  // Reset the step counter since we're processing this observation
+  step_counter_ = 0;
+
+  // Perform the update step for each particle based on the new laser observation
+  for (Particle& particle : particles_) {
+    Update(ranges, range_min, range_max, angle_min, angle_max, angle_increment, &particle);
+  }
+
+  // Resample the particles based on their updated weights
+  Resample();
 }
 
 void ParticleFilter::ObserveLaser(const vector<float>& ranges, float range_min, float range_max, float angle_min,

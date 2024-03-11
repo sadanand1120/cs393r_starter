@@ -13,3 +13,4 @@ obs_model:
   dshort: 0.3
   dlong: 1.0
   sigmas: 0.05
+obs_update_skip_steps: 0
