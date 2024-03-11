@@ -4,8 +4,8 @@ init_y = 14.24;
 init_r = 0; -- in degrees
 
 -- Overall particle filter parameters
-num_particles = 100
-num_lasers = 300
+num_particles = 50
+num_lasers = 50
 obs_update_skip_steps = 0
 
 -- Initial distribution parameters
@@ -22,4 +22,4 @@ k5 = 0.2
 -- Observation model parameters
 dshort = 0.3
 dlong = 1.0
-sigmas = 0.05
+sigmas = 1.0

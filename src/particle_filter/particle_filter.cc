@@ -163,7 +163,8 @@ double ParticleFilter::ComputeLogLikelihood(double s, double pred_s, double rang
   double delta = 0.0;  // This will hold the value used in the computation
 
   if (s < range_min || s > range_max) {
-    delta = std::pow(range_max, 2);
+    // delta = std::pow(range_max, 2);
+    delta = 0.0;
   } else if (s < pred_s - dshort) {
     delta = std::pow(dshort, 2);
   } else if (s > pred_s + dlong) {
@@ -199,6 +200,7 @@ void ParticleFilter::Update(const std::vector<float>& ranges, float range_min, f
 
     // Compute log likelihood of observed range given the predicted range
     double logLikelihood = ComputeLogLikelihood(s, pred_s, range_min, range_max, dshort, dlong, sigmas);
+    // printf("Log Likelihood: %f\n", logLikelihood);
     logLikelihoodSum += logLikelihood;
   }
 
@@ -252,7 +254,6 @@ void ParticleFilter::Resample() {
 void ParticleFilter::ObserveLaser(const std::vector<float>& ranges, float range_min, float range_max, float angle_min,
                                   float angle_max, float angle_increment) {
   // Check if we should skip this update
-  return;  // DEBUG
   if (step_counter_ < obs_update_skip_steps) {
     // Increment step counter and skip this observation
     ++step_counter_;
@@ -265,7 +266,10 @@ void ParticleFilter::ObserveLaser(const std::vector<float>& ranges, float range_
   // Perform the update step for each particle based on the new laser observation
   for (Particle& particle : particles_) {
     Update(ranges, range_min, range_max, angle_min, angle_max, angle_increment, &particle);
+    // print particle weight
+    printf("Particle Weight: %f\n", particle.logweight);
   }
+  return;
 
   // Resample the particles based on their updated weights
   Resample();
@@ -326,9 +330,9 @@ void ParticleFilter::Predict(const Vector2f& odom_loc, const float odom_angle) {
     // Error for radius and slip
     float ep_p = rng_.Gaussian(0.0, k3 * c + k4 * std::fabs(delta_theta));
     float ep_theta = rng_.Gaussian(0.0, k5 * std::fabs(delta_theta));
-    printf("Tangential Error: %f\n", ep_n);
-    printf("Radial Error: %f\n", ep_p);
-    printf("Angle Error: %f\n", ep_theta);
+    // printf("Tangential Error: %f\n", ep_n);
+    // printf("Radial Error: %f\n", ep_p);
+    // printf("Angle Error: %f\n", ep_theta);
 
     noisy_T = delta_T + ep_n * n + ep_p * p;
 
@@ -369,21 +373,18 @@ void ParticleFilter::Initialize(const string& map_file, const Vector2f& loc, con
 void ParticleFilter::GetLocation(Eigen::Vector2f* loc_ptr, float* angle_ptr) const {
   Eigen::Vector2f loc(0, 0);
   float angle = 0;
-  double total_weight = 0;
+  int total_particles = particles_.size();
 
-  // Compute weighted sum of particle locations and angles
+  // Sum up all particle locations and angles
   for (const Particle& p : particles_) {
-    float weight = std::exp(p.logweight);
-    loc += p.loc * weight;
-    // For angle, we need to ensure correct averaging of circular quantities
-    angle += Eigen::Rotation2Df(p.angle).angle() * weight;
-    total_weight += weight;
+    loc += p.loc;
+    angle += p.angle;
   }
 
-  // Normalize to get the weighted average
-  if (total_weight > 0) {
-    loc /= total_weight;
-    angle /= total_weight;
+  // Compute the average by dividing by the total number of particles
+  if (total_particles > 0) {
+    loc /= total_particles;
+    angle /= total_particles;
   }
 
   // Assign the computed values to output parameters
