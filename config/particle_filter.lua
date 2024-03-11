@@ -9,17 +9,17 @@ num_lasers = 100
 obs_update_skip_steps = 50
 
 -- Initial distribution parameters
-i1 = 0.1
-i2 = 0.1
+i1 = 0.2
+i2 = 0.2
 
 -- Motion model parameters
-k1 = 0.1
-k2 = 0.1
+k1 = 0.3
+k2 = 0.3
 k3 = 0.1
 k4 = 0.1
 k5 = 0.1
 
 -- Observation model parameters
-dshort = 0.8
-dlong = 2.0
+dshort = 0.3
+dlong = 0.05
 sigmas = 0.05

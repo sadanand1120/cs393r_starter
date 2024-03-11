@@ -255,14 +255,14 @@ void ParticleFilter::Resample() {
   // Low Variance Resampling
   int N = particles_.size();
   double r = rng_.UniformRandom(0, 1.0 / N);
-  double c = std::exp(weights[0]);
+  double c = weights[0];
   double increment = 1.0 / N;
   int i = 0;
   for (int m = 0; m < N; ++m) {
     double U = r + m * increment;
     while (U > c) {
       i = i + 1;
-      c = c + std::exp(weights[i]);
+      c = c + weights[i];
     }
     new_particles.push_back(particles_[i]);
   }
