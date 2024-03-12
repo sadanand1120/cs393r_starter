@@ -90,6 +90,7 @@ CONFIG_FLOAT(dshort_, "dshort");
 CONFIG_FLOAT(dlong_, "dlong");
 CONFIG_FLOAT(sigmas_, "sigmas");
 CONFIG_INT(obs_update_skip_steps_, "obs_update_skip_steps");
+CONFIG_FLOAT(obs_update_skip_dist_, "obs_update_skip_dist");
 config_reader::ConfigReader config_reader_({"config/particle_filter.lua"});
 
 bool run_ = true;
@@ -226,7 +227,7 @@ void ProcessLive(ros::NodeHandle* n) {
                               DegToRad(CONFIG_init_r_));
   particle_filter_.SetHparams(CONFIG_k1_, CONFIG_k2_, CONFIG_k3_, CONFIG_k4_, CONFIG_k5_, CONFIG_num_particles_,
                               CONFIG_num_lasers_, CONFIG_i1_, CONFIG_i2_, CONFIG_dshort_, CONFIG_dlong_, CONFIG_sigmas_,
-                              CONFIG_obs_update_skip_steps_);
+                              CONFIG_obs_update_skip_steps_, CONFIG_obs_update_skip_dist_);
   while (ros::ok() && run_) {
     ros::spinOnce();
     PublishVisualization();

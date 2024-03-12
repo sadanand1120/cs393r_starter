@@ -4,9 +4,10 @@ init_y = 14.24;
 init_r = 0; -- in degrees
 
 -- Overall particle filter parameters
-num_particles = 20;
+num_particles = 100;
 num_lasers = 33;
 obs_update_skip_steps = 20;
+obs_update_skip_dist = 0.1;
 
 -- Initial distribution parameters
 i1 = 0.04;

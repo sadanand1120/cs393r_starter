@@ -51,6 +51,9 @@ using vector_map::VectorMap;
 
 namespace particle_filter {
 
+Eigen::Vector2f avg_loc(0,0);
+Eigen::Vector2f last_seen_obs_loc(0,0);
+
 config_reader::ConfigReader config_reader_({"config/particle_filter.lua"});
 
 ParticleFilter::ParticleFilter()
@@ -70,11 +73,12 @@ ParticleFilter::ParticleFilter()
       dlong(0),
       sigmas(0),
       obs_update_skip_steps(0),
+      obs_update_skip_dist(0),
       step_counter_(0) {}
 
 void ParticleFilter::SetHparams(float _k1, float _k2, float _k3, float _k4, float _k5, int _num_particles,
                                 int _num_lasers, float _i1, float _i2, float _dshort, float _dlong, float _sigmas,
-                                int _obs_update_skip_steps) {
+                                int _obs_update_skip_steps, float _obs_update_skip_dist) {
   k1 = _k1;
   k2 = _k2;
   k3 = _k3;
@@ -88,6 +92,7 @@ void ParticleFilter::SetHparams(float _k1, float _k2, float _k3, float _k4, floa
   dlong = _dlong;
   sigmas = _sigmas;
   obs_update_skip_steps = _obs_update_skip_steps;
+  obs_update_skip_dist = _obs_update_skip_dist;
 }
 
 void ParticleFilter::GetParticles(vector<Particle>* particles) const { *particles = particles_; }
@@ -273,14 +278,15 @@ void ParticleFilter::Resample() {
 void ParticleFilter::ObserveLaser(const std::vector<float>& ranges, float range_min, float range_max, float angle_min,
                                   float angle_max, float angle_increment) {
   // Check if we should skip this update
-  if (step_counter_ < obs_update_skip_steps) {
+  float dist = (avg_loc - last_seen_obs_loc).norm();
+  if (dist < obs_update_skip_dist) {
     // Increment step counter and skip this observation
-    ++step_counter_;
     return;
   }
 
   // Reset the step counter since we're processing this observation
   step_counter_ = 0;
+  last_seen_obs_loc = avg_loc;
 
   // Perform the update step for each particle based on the new laser observation
   for (Particle& particle : particles_) {
@@ -404,6 +410,8 @@ void ParticleFilter::GetLocation(Eigen::Vector2f* loc_ptr, float* angle_ptr) con
     loc /= total_particles;
     angle /= total_particles;
   }
+
+  avg_loc = loc;
 
   // Assign the computed values to output parameters
   *loc_ptr = loc;
