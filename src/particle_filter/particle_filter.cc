@@ -99,8 +99,8 @@ void ParticleFilter::GetPredictedPointCloud(const Eigen::Vector2f& loc, const fl
   scan.clear();
   scan.resize(num_ranges);
 
-  Eigen::Vector2f laser_offset(0.21, 0);                                       // Laser offset in the base_link frame
-  Eigen::Vector2f laser_loc = loc + Eigen::Rotation2Df(angle) * laser_offset;  // Transform to laser location
+  Eigen::Vector2f laser_offset(0.21, 0);                                        // Laser offset in the base_link frame
+  Eigen::Vector2f laser_loc = loc + Eigen::Rotation2Df(-angle) * laser_offset;  // Transform to laser location
 
   // Calculate how many lasers to skip based on num_lasers
   int lasers_to_skip = std::max(1, num_ranges / num_lasers);  // Ensure we don't divide by zero or skip none
@@ -114,7 +114,7 @@ void ParticleFilter::GetPredictedPointCloud(const Eigen::Vector2f& loc, const fl
       break;
     }
 
-    Eigen::Vector2f ray_dir(std::cos(current_angle + angle), std::sin(current_angle + angle));
+    Eigen::Vector2f ray_dir(std::cos(angle + current_angle), std::sin(angle + current_angle));
     Eigen::Vector2f max_point = laser_loc + ray_dir * range_max;  // End point of the laser ray at max range
 
     bool found_intersection = false;
@@ -210,7 +210,7 @@ void ParticleFilter::Update(const std::vector<float>& ranges, float range_min, f
   printf("--------------------------------------------------------------------------------------\n");
 
   // Update the particle's log weight
-  p_ptr->logweight = logLikelihoodSum;
+  p_ptr->logweight = 0.2 * p_ptr->logweight + 0.8 * logLikelihoodSum;
 }
 
 void ParticleFilter::Resample() {
@@ -272,13 +272,6 @@ void ParticleFilter::Resample() {
 
 void ParticleFilter::ObserveLaser(const std::vector<float>& ranges, float range_min, float range_max, float angle_min,
                                   float angle_max, float angle_increment) {
-  // Perform the update step for each particle based on the new laser observation
-  for (Particle& particle : particles_) {
-    Update(ranges, range_min, range_max, angle_min, angle_max, angle_increment, &particle);
-    // print particle weight
-    // printf("Particle Weight: %f\n", particle.logweight);
-  }
-
   // Check if we should skip this update
   if (step_counter_ < obs_update_skip_steps) {
     // Increment step counter and skip this observation
@@ -288,6 +281,13 @@ void ParticleFilter::ObserveLaser(const std::vector<float>& ranges, float range_
 
   // Reset the step counter since we're processing this observation
   step_counter_ = 0;
+
+  // Perform the update step for each particle based on the new laser observation
+  for (Particle& particle : particles_) {
+    Update(ranges, range_min, range_max, angle_min, angle_max, angle_increment, &particle);
+    // print particle weight
+    // printf("Particle Weight: %f\n", particle.logweight);
+  }
 
   // Resample the particles based on their updated weights
   Resample();
@@ -409,5 +409,38 @@ void ParticleFilter::GetLocation(Eigen::Vector2f* loc_ptr, float* angle_ptr) con
   *loc_ptr = loc;
   *angle_ptr = angle;
 }
+
+// void ParticleFilter::GetLocation(Eigen::Vector2f* loc_ptr, float* angle_ptr) const {
+//   Eigen::Vector2f loc(0, 0);
+//   float angle = 0;
+//   double total_weight = 0;
+
+//   // Find min logweight
+//   double max_logweight = particles_[0].logweight;
+//   for (const Particle& p : particles_) {
+//     if (p.logweight < max_logweight) {
+//       max_logweight = p.logweight;
+//     }
+//   }
+
+//   // Compute weighted sum of particle locations and angles
+//   for (const Particle& p : particles_) {
+//     float weight = p.logweight - max_logweight;
+//     loc += p.loc * weight;
+//     // For angle, we need to ensure correct averaging of circular quantities
+//     angle += Eigen::Rotation2Df(p.angle).angle() * weight;
+//     total_weight += weight;
+//   }
+
+//   // Normalize to get the weighted average
+//   if (total_weight > 0) {
+//     loc /= total_weight;
+//     angle /= total_weight;
+//   }
+
+//   // Assign the computed values to output parameters
+//   *loc_ptr = loc;
+//   *angle_ptr = angle;
+// }
 
 }  // namespace particle_filter
