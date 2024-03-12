@@ -307,6 +307,10 @@ void ParticleFilter::Predict(const Vector2f& odom_loc, const float odom_angle) {
     return;
   }
 
+  Vector2f backup_robot_loc(0, 0);
+  float backup_robot_angle(0);
+  GetLocation(&backup_robot_loc, &backup_robot_angle);
+
   // If we get here, then odometry has been initialized
   Eigen::Rotation2Df r(-prev_odom_angle_);
   Vector2f delta_T = r * (odom_loc - prev_odom_loc_);
@@ -370,14 +374,29 @@ void ParticleFilter::Predict(const Vector2f& odom_loc, const float odom_angle) {
       part.angle = proposed_angle;
       valid_particles.push_back(part);
     }
-    // part.loc = part.loc + Eigen::Rotation2Df(part.angle) * noisy_T;
-    // part.angle = part.angle + delta_theta + ep_theta;
   }
 
   // Now, update the odometry info for next time.
   prev_odom_loc_ = odom_loc;
   prev_odom_angle_ = odom_angle;
   particles_ = std::move(valid_particles);
+  if (particles_.size() < 1) {
+    printf("No valid particles\n");
+    // re initialize particles around backup_robot_loc and backup_robot_angle
+    particles_.clear();
+    particles_.reserve(2 * num_particles);
+
+    for (int i = 0; i < 2 * num_particles; ++i) {
+      Particle p;
+      // Assuming loc and angle are means of the distributions
+      p.loc =
+          backup_robot_loc + Eigen::Vector2f(rng_.Gaussian(0, std::sqrt(3 * i1)), rng_.Gaussian(0, std::sqrt(3 * i1)));
+      p.angle = backup_robot_angle + rng_.Gaussian(0, std::sqrt(3 * i2));
+      p.logweight = log(1.0 / (2 * num_particles));  // Initially, all particles have the same weight
+
+      particles_.push_back(p);
+    }
+  }
 }
 
 void ParticleFilter::Initialize(const string& map_file, const Vector2f& loc, const float angle) {
