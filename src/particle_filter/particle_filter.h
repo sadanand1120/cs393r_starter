@@ -46,7 +46,7 @@ class ParticleFilter {
 
   // Set Hparams
   void SetHparams(float k1, float k2, float k3, float k4, float k5, int num_particles, int num_lasers, float i1,
-                  float i2, float dshort, float dlong, float sigmas, int obs_update_skip_steps);
+                  float i2, float dshort, float dlong, float sigmas, int obs_update_skip_steps, double obs_update_skip_dist);
 
   // Observe a new laser scan.
   void ObserveLaser(const std::vector<float>& ranges, float range_min, float range_max, float angle_min,
@@ -80,6 +80,7 @@ class ParticleFilter {
                               float range_max, float angle_min, float angle_max, float angle_increment,
                               std::vector<Eigen::Vector2f>* scan);
 
+
  private:
   // List of particles being tracked.
   std::vector<Particle> particles_;
@@ -94,7 +95,7 @@ class ParticleFilter {
   Eigen::Vector2f prev_odom_loc_;
   float prev_odom_angle_;
   bool odom_initialized_;
-
+  
   // Motion model Hyperparameters
   float k1, k2, k3, k4, k5;
   int num_particles;
@@ -102,6 +103,7 @@ class ParticleFilter {
   float i1, i2;
   float dshort, dlong, sigmas;
   int obs_update_skip_steps;
+  double obs_update_skip_dist;
   int step_counter_;
 };
 }  // namespace particle_filter

@@ -4,17 +4,18 @@ init_y = 14.24;
 init_r = 0; -- in degrees
 
 -- Overall particle filter parameters
-num_particles = 100
-num_lasers = 100
-obs_update_skip_steps = 50
+num_particles = 50
+num_lasers = 50
+obs_update_skip_steps = 200
+obs_update_skip_dist = 0.1
 
 -- Initial distribution parameters
 i1 = 0.2
 i2 = 0.2
 
 -- Motion model parameters
-k1 = 0.3
-k2 = 0.3
+k1 = 0.2
+k2 = 0.2
 k3 = 0.1
 k4 = 0.1
 k5 = 0.1

@@ -51,6 +51,9 @@ using vector_map::VectorMap;
 
 namespace particle_filter {
 
+Eigen::Vector2f avg_location(0, 0);
+Eigen::Vector2f last_seen_loc_in_obs(0, 0);
+
 config_reader::ConfigReader config_reader_({"config/particle_filter.lua"});
 
 ParticleFilter::ParticleFilter()
@@ -70,11 +73,12 @@ ParticleFilter::ParticleFilter()
       dlong(0),
       sigmas(0),
       obs_update_skip_steps(0),
+      obs_update_skip_dist(0.0),
       step_counter_(0) {}
 
 void ParticleFilter::SetHparams(float _k1, float _k2, float _k3, float _k4, float _k5, int _num_particles,
                                 int _num_lasers, float _i1, float _i2, float _dshort, float _dlong, float _sigmas,
-                                int _obs_update_skip_steps) {
+                                int _obs_update_skip_steps, double _obs_update_skip_dist) {
   k1 = _k1;
   k2 = _k2;
   k3 = _k3;
@@ -88,6 +92,7 @@ void ParticleFilter::SetHparams(float _k1, float _k2, float _k3, float _k4, floa
   dlong = _dlong;
   sigmas = _sigmas;
   obs_update_skip_steps = _obs_update_skip_steps;
+  obs_update_skip_dist = _obs_update_skip_dist;
 }
 
 void ParticleFilter::GetParticles(vector<Particle>* particles) const { *particles = particles_; }
@@ -280,14 +285,15 @@ void ParticleFilter::ObserveLaser(const std::vector<float>& ranges, float range_
   }
 
   // Check if we should skip this update
-  if (step_counter_ < obs_update_skip_steps) {
+  double loc_delta = (avg_location - last_seen_loc_in_obs).norm();
+
+  if (loc_delta < 0.1) {
     // Increment step counter and skip this observation
-    ++step_counter_;
     return;
   }
 
-  // Reset the step counter since we're processing this observation
-  step_counter_ = 0;
+  // Update Last seen
+  last_seen_loc_in_obs = avg_location;
 
   // Resample the particles based on their updated weights
   Resample();
@@ -404,6 +410,9 @@ void ParticleFilter::GetLocation(Eigen::Vector2f* loc_ptr, float* angle_ptr) con
     loc /= total_particles;
     angle /= total_particles;
   }
+
+
+  avg_location = loc;
 
   // Assign the computed values to output parameters
   *loc_ptr = loc;
