@@ -51,8 +51,8 @@ using vector_map::VectorMap;
 
 namespace particle_filter {
 
-Eigen::Vector2f avg_loc(0,0);
-Eigen::Vector2f last_seen_obs_loc(0,0);
+Eigen::Vector2f avg_loc(0, 0);
+Eigen::Vector2f last_seen_obs_loc(0, 0);
 
 config_reader::ConfigReader config_reader_({"config/particle_filter.lua"});
 
@@ -258,7 +258,7 @@ void ParticleFilter::Resample() {
   // printf("--------------------------------------------------------------------------------------\n");
 
   // Low Variance Resampling
-  int N = particles_.size();
+  int N = num_particles;
   double r = rng_.UniformRandom(0, 1.0 / N);
   double c = weights[0];
   double increment = 1.0 / N;
@@ -300,14 +300,6 @@ void ParticleFilter::ObserveLaser(const std::vector<float>& ranges, float range_
 }
 
 void ParticleFilter::Predict(const Vector2f& odom_loc, const float odom_angle) {
-  // Implement the predict step of the particle filter here.
-  // A new odometry value is available (in the odom frame)
-  // Implement the motion model predict step here, to propagate the particles
-  // forward based on odometry.
-
-  // We can only start prediction once we have obtained at least 2 odometry
-  // readings.
-
   if (!odom_initialized_) {
     prev_odom_loc_ = odom_loc;
     prev_odom_angle_ = odom_angle;
@@ -347,6 +339,7 @@ void ParticleFilter::Predict(const Vector2f& odom_loc, const float odom_angle) {
   // that particle's motion with respect to the motion model.
   // Particles are in the map frame
   Vector2f noisy_T(0, 0);
+  std::vector<Particle> valid_particles;
   for (Particle& part : particles_) {
     // Create a noisy version of delta_T
     // Error for travel
@@ -360,13 +353,31 @@ void ParticleFilter::Predict(const Vector2f& odom_loc, const float odom_angle) {
 
     noisy_T = delta_T + ep_n * n + ep_p * p;
 
-    part.loc = part.loc + Eigen::Rotation2Df(part.angle) * noisy_T;
-    part.angle = part.angle + delta_theta + ep_theta;
+    Eigen::Vector2f proposed_loc = part.loc + Eigen::Rotation2Df(part.angle) * noisy_T;
+    float proposed_angle = part.angle + delta_theta + ep_theta;
+
+    bool intersects = false;
+    for (const auto& map_line : map_.lines) {
+      Eigen::Vector2f intersection_point;
+      if (map_line.Intersection(line2f(part.loc, proposed_loc), &intersection_point)) {
+        intersects = true;
+        break;  // Exit the loop early if any intersection is found
+      }
+    }
+    if (!intersects) {
+      // Update the particle's state only if no intersection is found
+      part.loc = proposed_loc;
+      part.angle = proposed_angle;
+      valid_particles.push_back(part);
+    }
+    // part.loc = part.loc + Eigen::Rotation2Df(part.angle) * noisy_T;
+    // part.angle = part.angle + delta_theta + ep_theta;
   }
 
   // Now, update the odometry info for next time.
   prev_odom_loc_ = odom_loc;
   prev_odom_angle_ = odom_angle;
+  particles_ = std::move(valid_particles);
 }
 
 void ParticleFilter::Initialize(const string& map_file, const Vector2f& loc, const float angle) {
