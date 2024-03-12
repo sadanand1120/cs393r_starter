@@ -380,7 +380,19 @@ void ParticleFilter::Predict(const Vector2f& odom_loc, const float odom_angle) {
   prev_odom_loc_ = odom_loc;
   prev_odom_angle_ = odom_angle;
   particles_ = std::move(valid_particles);
-  if (particles_.size() < 1) {
+  if (particles_.size() < 6) {
+    // re initialize particles around backup_robot_loc and backup_robot_angle
+    for (int i = 0; i < num_particles; ++i) {
+      Particle p;
+      // Assuming loc and angle are means of the distributions
+      p.loc =
+          backup_robot_loc + Eigen::Vector2f(rng_.Gaussian(0, std::sqrt(2 * i1)), rng_.Gaussian(0, std::sqrt(2 * i1)));
+      p.angle = backup_robot_angle + rng_.Gaussian(0, std::sqrt(2 * i2));
+      p.logweight = log(1.0 / (num_particles));  // Initially, all particles have the same weight
+
+      particles_.push_back(p);
+    }
+  } else if (particles_.size() < 1) {
     printf("No valid particles\n");
     // re initialize particles around backup_robot_loc and backup_robot_angle
     particles_.clear();
