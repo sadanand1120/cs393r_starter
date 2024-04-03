@@ -51,6 +51,37 @@ struct Controls {
   double velocity;
 };
 
+struct RRT_Node {
+  struct RRT_Node* parent;
+  double inbound_curvature;
+  double inboud_vel;
+  const Vector2f& odom_loc;
+  const float odom_angle;
+};
+
+struct Action_Space{
+  double min_curve = -1.0;
+  double max_curve = 1.0;
+
+  double delta_curve = 0.2;
+
+  double min_vel = -1.0;
+  double max_vel = 1.0;
+  double delta_vel = 0.2;
+
+  double max_time_step = 0.1;
+}
+
+class RRT_Tree {
+  public:
+    // Constructor
+    explicit RRT_Tree(const Vector2f& root_odom_loc, const float root_odom_angle);
+
+    struct RRT_Node find_closest(Vector2f sampled_config);
+
+    std::vector<struct RRT_Node> make_trajectory(struct RRT_Node found_goal_config);
+}
+
 class Navigation {
  public:
   // Constructor
