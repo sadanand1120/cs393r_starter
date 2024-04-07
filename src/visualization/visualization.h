@@ -63,7 +63,8 @@ void DrawArc(const Eigen::Vector2f& center,
 // Add a particle to the visualization message.
 void DrawParticle(const Eigen::Vector2f& loc,
                   float angle,
-                  amrl_msgs::VisualizationMsg& msg);
+                  amrl_msgs::VisualizationMsg& msg,
+                  uint32_t color);
 
 void DrawPathOption(const float curvature,
                     const float distance,

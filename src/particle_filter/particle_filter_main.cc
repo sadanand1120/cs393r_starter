@@ -20,34 +20,34 @@
 */
 //========================================================================
 
-#include <signal.h>
-#include <stdlib.h>
-#include <math.h>
-#include <stdio.h>
-#include <string.h>
 #include <inttypes.h>
+#include <math.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <termios.h>
+
 #include <vector>
 
-#include "eigen3/Eigen/Dense"
-#include "eigen3/Eigen/Geometry"
 #include "amrl_msgs/Localization2DMsg.h"
 #include "amrl_msgs/VisualizationMsg.h"
-#include "gflags/gflags.h"
+#include "config_reader/config_reader.h"
+#include "eigen3/Eigen/Dense"
+#include "eigen3/Eigen/Geometry"
 #include "geometry_msgs/PoseArray.h"
-#include "sensor_msgs/LaserScan.h"
+#include "gflags/gflags.h"
+#include "glog/logging.h"
 #include "nav_msgs/Odometry.h"
+#include "particle_filter.h"
+#include "ros/package.h"
 #include "ros/ros.h"
 #include "rosbag/bag.h"
 #include "rosbag/view.h"
-#include "ros/package.h"
-
-#include "config_reader/config_reader.h"
-#include "shared/math/math_util.h"
+#include "sensor_msgs/LaserScan.h"
 #include "shared/math/line2d.h"
+#include "shared/math/math_util.h"
 #include "shared/util/timer.h"
-
-#include "particle_filter.h"
 #include "visualization/visualization.h"
 
 using amrl_msgs::VisualizationMsg;
@@ -70,6 +70,7 @@ DEFINE_string(laser_topic, "/scan", "Name of ROS topic for LIDAR data");
 DEFINE_string(odom_topic, "/odom", "Name of ROS topic for odometry data");
 DEFINE_string(init_topic, "/set_pose", "Name of ROS topic for initialization");
 
+DEFINE_bool(CUDA, false, "Use CUDA for particle filter");
 DECLARE_int32(v);
 
 // Create config reader entries
@@ -77,20 +78,6 @@ CONFIG_STRING(map_name_, "map");
 CONFIG_FLOAT(init_x_, "init_x");
 CONFIG_FLOAT(init_y_, "init_y");
 CONFIG_FLOAT(init_r_, "init_r");
-CONFIG_FLOAT(k1_, "k1");
-CONFIG_FLOAT(k2_, "k2");
-CONFIG_FLOAT(k3_, "k3");
-CONFIG_FLOAT(k4_, "k4");
-CONFIG_FLOAT(k5_, "k5");
-CONFIG_INT(num_particles_, "num_particles");
-CONFIG_INT(num_lasers_, "num_lasers");
-CONFIG_FLOAT(i1_, "i1");
-CONFIG_FLOAT(i2_, "i2");
-CONFIG_FLOAT(dshort_, "dshort");
-CONFIG_FLOAT(dlong_, "dlong");
-CONFIG_FLOAT(sigmas_, "sigmas");
-CONFIG_INT(obs_update_skip_steps_, "obs_update_skip_steps");
-CONFIG_FLOAT(obs_update_skip_dist_, "obs_update_skip_dist");
 config_reader::ConfigReader config_reader_({"config/particle_filter.lua"});
 
 bool run_ = true;
@@ -116,23 +103,70 @@ void InitializeMsgs() {
 void PublishParticles() {
   vector<particle_filter::Particle> particles;
   particle_filter_.GetParticles(&particles);
+  // Scale the color from 0 to max value based on relative particle weight
+
+
   for (const particle_filter::Particle& p : particles) {
-    DrawParticle(p.loc, p.angle, vis_msg_);
+    uint8_t red = static_cast<uint8_t>((1 - p.weight) * 255);
+    uint8_t green = static_cast<uint8_t>(p.weight * 255);
+    uint32_t color = (red << 16) | (green << 8);
+    
+    DrawParticle(p.loc, p.angle, vis_msg_, color);
   }
 }
 
 void PublishPredictedScan() {
-  const uint32_t kColor = 0xd67d00;
+  // std::cout << "Publishing Predicted Scan with ROS Time " << ros::Time::now() <<
+  // std::endl;
+  const uint32_t kColor = 0x7DFF00;  // Green
   Vector2f robot_loc(0, 0);
   float robot_angle(0);
   particle_filter_.GetLocation(&robot_loc, &robot_angle);
   vector<Vector2f> predicted_scan;
-  particle_filter_.GetPredictedPointCloud(
-      robot_loc, robot_angle, last_laser_msg_.ranges.size(), last_laser_msg_.range_min, last_laser_msg_.range_max,
-      last_laser_msg_.angle_min, last_laser_msg_.angle_max, last_laser_msg_.angle_increment, &predicted_scan);
+
+  particle_filter_.GetPredictedPointCloud(robot_loc,
+                                          robot_angle,
+                                          last_laser_msg_.ranges.size(),
+                                          last_laser_msg_.range_min,
+                                          last_laser_msg_.range_max,
+                                          last_laser_msg_.angle_min,
+                                          last_laser_msg_.angle_max,
+                                          predicted_scan);
   for (const Vector2f& p : predicted_scan) {
     DrawPoint(p, kColor, vis_msg_);
   }
+
+  // // DEBUG downsampled point cloud
+  // const uint32_t kSubColor = 0xFF0000;  // Red
+  // size_t num_sub_ranges = size_t(last_laser_msg_.ranges.size() / 10); // CHANGE THIS IF DS Factor CHANGES!
+  // vector<float> sub_ranges(num_sub_ranges);
+  // vector<Vector2f> sub_predicted_scan;
+
+  // float d_theta = (last_laser_msg_.angle_max - last_laser_msg_.angle_min) / (last_laser_msg_.ranges.size() - 1);
+  // for (size_t i = 0; i < num_sub_ranges; ++i) {
+  //   size_t copy_idx = i * 10;
+  //   sub_ranges[i] = last_laser_msg_.ranges[copy_idx];
+  // }
+  // float new_angle_max = last_laser_msg_.angle_min + d_theta * 10 * (num_sub_ranges - 1) ;
+
+  // particle_filter_.GetPredictedPointCloud(robot_loc,
+  //                                         robot_angle,
+  //                                         num_sub_ranges,
+  //                                         last_laser_msg_.range_min,
+  //                                         last_laser_msg_.range_max,
+  //                                         last_laser_msg_.angle_min,
+  //                                         new_angle_max,
+  //                                         sub_predicted_scan);
+  // for (const Vector2f& p : sub_predicted_scan) {
+  //   DrawPoint(p, kSubColor, vis_msg_);
+  // }
+
+  // // Draw lines between original and downsampled point cloud corresopndences
+  // for (size_t i = 0; i < num_sub_ranges; ++i) {
+  //   size_t ds_idx = i * 10;
+  //   DrawLine(predicted_scan[ds_idx], sub_predicted_scan[i], 0x000000, vis_msg_); 
+  // }
+
 }
 
 void PublishTrajectory() {
@@ -155,7 +189,7 @@ void PublishTrajectory() {
 
 void PublishVisualization() {
   static double t_last = 0;
-  if (GetMonotonicTime() - t_last < 0.05) {
+  if (GetMonotonicTime() - t_last < 0.5) {  // 0.05) {
     // Rate-limit visualization.
     return;
   }
@@ -169,18 +203,6 @@ void PublishVisualization() {
   visualization_publisher_.publish(vis_msg_);
 }
 
-void LaserCallback(const sensor_msgs::LaserScan& msg) {
-  if (FLAGS_v > 0) {
-    printf("Laser t=%f\n", msg.header.stamp.toSec());
-  }
-  last_laser_msg_ = msg;
-  // The LaserScan parameters are accessible as follows:
-  // msg.angle_increment // Angular increment between subsequent rays
-  particle_filter_.ObserveLaser(msg.ranges, msg.range_min, msg.range_max, msg.angle_min, msg.angle_max,
-                                msg.angle_increment);
-  PublishVisualization();
-}
-
 void PublishLocation() {
   Vector2f robot_loc(0, 0);
   float robot_angle(0);
@@ -189,19 +211,83 @@ void PublishLocation() {
   localization_msg_.map = current_map_;
   localization_msg_.pose.x = robot_loc.x();
   localization_msg_.pose.y = robot_loc.y();
-  localization_msg_.pose.theta = robot_angle;
+  localization_msg_.pose.theta = math_util::AngleMod(robot_angle);
   localization_publisher_.publish(localization_msg_);
 }
 
-void OdometryCallback(const nav_msgs::Odometry& msg) {
-  if (FLAGS_v > 0) {
-    printf("Odometry t=%f\n", msg.header.stamp.toSec());
+void LaserCallback(const sensor_msgs::LaserScan& msg) {
+  static CumulativeFunctionTimer function_timer_(__FUNCTION__);
+  CumulativeFunctionTimer::Invocation invoke(&function_timer_);
+
+  last_laser_msg_ = msg;
+  if (FLAGS_CUDA) {
+    LOG(WARNING) << "CUDA not implemented";
+
+    // particle_filter_.ObserveLaserCUDA(
+    //     msg.ranges, msg.range_min, msg.range_max, msg.angle_min, msg.angle_max);
+  } else {
+    particle_filter_.ObserveLaser(
+        msg.ranges, msg.range_min, msg.range_max, msg.angle_min, msg.angle_max);
   }
+
+  PublishVisualization();
+
+  // (DEBUGING) Visualize range differences
+  // Get predicted point cloud
+  // size_t num_sub_ranges = size_t(msg.ranges.size() / 10);
+  // vector<float> sub_ranges(num_sub_ranges);
+
+  // for (size_t i = 0; i < num_sub_ranges; ++i) {
+  //   size_t copy_idx = i * CONFIG_ds_factor;
+  //   sub_ranges[i] = ranges[copy_idx];
+  // }
+
+  // Vector2f robot_loc(0, 0);
+  // float robot_angle(0);
+  // vector<Vector2f> predicted_scan;
+  // particle_filter_.GetLocation(&robot_loc, &robot_angle);
+  // particle_filter_.GetPredictedPointCloud(robot_loc,
+  //                                         robot_angle,
+  //                                         sub_ranges.size(),
+  //                                         last_laser_msg_.range_min,
+  //                                         last_laser_msg_.range_max,
+  //                                         last_laser_msg_.angle_min,
+  //                                         last_laser_msg_.angle_max,
+  //                                         predicted_scan);
+  // // Get Observed Point cloud
+  
+
+  if (FLAGS_v > 1) {
+    cout << "============ [Particle Filter Main] LaserCallback ============" << endl;
+    printf("Laser t=%f\n", msg.header.stamp.toSec());
+    printf(
+        "num_ranges: %lu, range_min: %f, range_max: %f, angle_min: %f, angle_max: %f\n",
+        msg.ranges.size(),
+        msg.range_min,
+        msg.range_max,
+        msg.angle_min,
+        msg.angle_max);
+    cout << "==============================================================\n" << endl;
+  }
+}
+
+void OdometryCallback(const nav_msgs::Odometry& msg) {
+  static CumulativeFunctionTimer function_timer_(__FUNCTION__);
+  CumulativeFunctionTimer::Invocation invoke(&function_timer_);
   const Vector2f odom_loc(msg.pose.pose.position.x, msg.pose.pose.position.y);
-  const float odom_angle = 2.0 * atan2(msg.pose.pose.orientation.z, msg.pose.pose.orientation.w);
+  const float odom_angle =
+      2.0 * atan2(msg.pose.pose.orientation.z, msg.pose.pose.orientation.w);
   particle_filter_.Predict(odom_loc, odom_angle);
   PublishLocation();
   PublishVisualization();
+
+  if (FLAGS_v > 1) {
+    cout << "=========== [Particle Filter Main] OdometryCallBack ==========" << endl;
+    printf("Odometry t=%f\n", msg.header.stamp.toSec());
+    printf("odom loc: (%f,%f)\n", msg.pose.pose.position.x, msg.pose.pose.position.y);
+    printf("odom angle: %f\u00b0\n", RadToDeg(odom_angle));
+    cout << "==============================================================\n" << endl;
+  }
 }
 
 string GetMapFileFromName(const string& map) {
@@ -214,20 +300,28 @@ void InitCallback(const amrl_msgs::Localization2DMsg& msg) {
   const float init_angle = msg.pose.theta;
   current_map_ = msg.map;
   const string map_file = GetMapFileFromName(current_map_);
-  printf("Initialize: %s (%f,%f) %f\u00b0\n", current_map_.c_str(), init_loc.x(), init_loc.y(), RadToDeg(init_angle));
+  printf("Initialize: %s (%f,%f) %f\u00b0\n",
+         current_map_.c_str(),
+         init_loc.x(),
+         init_loc.y(),
+         RadToDeg(init_angle));
   particle_filter_.Initialize(map_file, init_loc, init_angle);
   trajectory_points_.clear();
 }
 
 void ProcessLive(ros::NodeHandle* n) {
-  ros::Subscriber initial_pose_sub = n->subscribe(FLAGS_init_topic.c_str(), 1, InitCallback);
+  ros::Subscriber initial_pose_sub =
+      n->subscribe(FLAGS_init_topic.c_str(), 1, InitCallback);
   ros::Subscriber laser_sub = n->subscribe(FLAGS_laser_topic.c_str(), 1, LaserCallback);
-  ros::Subscriber odom_sub = n->subscribe(FLAGS_odom_topic.c_str(), 1, OdometryCallback);
-  particle_filter_.Initialize(GetMapFileFromName(current_map_), Vector2f(CONFIG_init_x_, CONFIG_init_x_),
+  ros::Subscriber odom_sub =
+      n->subscribe(FLAGS_odom_topic.c_str(), 1, OdometryCallback);
+  // ros::Subscriber true_pose_sub =
+  //     n->subscribe(FLAGS_true_pose_topic.c_str(), 1, TruePoseCallback);
+
+  particle_filter_.Initialize(GetMapFileFromName(current_map_),
+                              Vector2f(CONFIG_init_x_, CONFIG_init_x_),
                               DegToRad(CONFIG_init_r_));
-  particle_filter_.SetHparams(CONFIG_k1_, CONFIG_k2_, CONFIG_k3_, CONFIG_k4_, CONFIG_k5_, CONFIG_num_particles_,
-                              CONFIG_num_lasers_, CONFIG_i1_, CONFIG_i2_, CONFIG_dshort_, CONFIG_dlong_, CONFIG_sigmas_,
-                              CONFIG_obs_update_skip_steps_, CONFIG_obs_update_skip_dist_);
+
   while (ros::ok() && run_) {
     ros::spinOnce();
     PublishVisualization();
@@ -246,6 +340,7 @@ void SignalHandler(int) {
 
 int main(int argc, char** argv) {
   google::ParseCommandLineFlags(&argc, &argv, false);
+  google::InitGoogleLogging(argv[0]);
   signal(SIGINT, SignalHandler);
   // Initialize ROS.
   ros::init(argc, argv, "particle_filter", ros::init_options::NoSigintHandler);
@@ -254,8 +349,9 @@ int main(int argc, char** argv) {
   current_map_ = CONFIG_map_name_;
 
   visualization_publisher_ = n.advertise<VisualizationMsg>("visualization", 1);
-  localization_publisher_ = n.advertise<amrl_msgs::Localization2DMsg>("localization", 1);
-  laser_publisher_ = n.advertise<sensor_msgs::LaserScan>("scan", 1);
+  localization_publisher_ =
+      n.advertise<amrl_msgs::Localization2DMsg>("localization", 1);
+  // laser_publisher_ = n.advertise<sensor_msgs::LaserScan>("scan", 1);
 
   ProcessLive(&n);
 

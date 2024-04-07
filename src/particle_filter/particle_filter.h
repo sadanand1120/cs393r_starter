@@ -18,25 +18,38 @@
 \author  Joydeep Biswas, (C) 2018
 */
 //========================================================================
-
 #include <algorithm>
+#include <numeric>
+#include <string>
 #include <vector>
 
 #include "eigen3/Eigen/Dense"
 #include "eigen3/Eigen/Geometry"
 #include "shared/math/line2d.h"
+#include "shared/math/math_util.h"
 #include "shared/util/random.h"
+#include "util/timer.h"
 #include "vector_map/vector_map.h"
 
 #ifndef SRC_PARTICLE_FILTER_H_
 #define SRC_PARTICLE_FILTER_H_
 
+using std::vector;
+
 namespace particle_filter {
+
+// struct ParticleCUDA {
+//   float2 loc;
+//   float angle;
+//   double weight;
+//   double log_likelihood;
+// };
 
 struct Particle {
   Eigen::Vector2f loc;
   float angle;
-  double logweight;
+  double weight;
+  double log_likelihood;
 };
 
 class ParticleFilter {
@@ -44,19 +57,20 @@ class ParticleFilter {
   // Default Constructor.
   ParticleFilter();
 
-  // Set Hparams
-  void SetHparams(float k1, float k2, float k3, float k4, float k5, int num_particles, int num_lasers, float i1,
-                  float i2, float dshort, float dlong, float sigmas, int obs_update_skip_steps, float obs_update_skip_dist);
-
   // Observe a new laser scan.
-  void ObserveLaser(const std::vector<float>& ranges, float range_min, float range_max, float angle_min,
-                    float angle_max, float angle_increment);
+  void ObserveLaser(const std::vector<float>& ranges,
+                    float range_min,
+                    float range_max,
+                    float angle_min,
+                    float angle_max);
 
   // Predict particle motion based on odometry.
   void Predict(const Eigen::Vector2f& odom_loc, const float odom_angle);
 
   // Initialize the robot location.
-  void Initialize(const std::string& map_file, const Eigen::Vector2f& loc, const float angle);
+  void Initialize(const std::string& map_file,
+                  const Eigen::Vector2f& loc,
+                  const float angle);
 
   // Return the list of particles.
   void GetParticles(std::vector<Particle>* particles) const;
@@ -64,21 +78,37 @@ class ParticleFilter {
   // Get robot's current location.
   void GetLocation(Eigen::Vector2f* loc, float* angle) const;
 
-  // Observation model: compute the log likelihood
-  double ComputeLogLikelihood(double s, double pred_s, double range_min, double range_max, double dshort, double dlong,
-                              double sigmas);
-
   // Update particle weight based on laser.
-  void Update(const std::vector<float>& ranges, float range_min, float range_max, float angle_min, float angle_max,
-              float angle_increment, Particle* p);
+  void Update(const std::vector<float>& observed_ranges,
+              float range_min,
+              float range_max,
+              float angle_min,
+              float angle_max,
+              Particle* p);
 
   // Resample particles.
   void Resample();
 
   // For debugging: get predicted point cloud from current location.
-  void GetPredictedPointCloud(const Eigen::Vector2f& loc, const float angle, int num_ranges, float range_min,
-                              float range_max, float angle_min, float angle_max, float angle_increment,
-                              std::vector<Eigen::Vector2f>* scan);
+  void GetPredictedPointCloud(const Eigen::Vector2f& loc,
+                              const float angle,
+                              int num_ranges,
+                              float range_min,
+                              float range_max,
+                              float angle_min,
+                              float angle_max,
+                              std::vector<Eigen::Vector2f>& scan);
+
+  double computeNormalLikelihood(const vector<float>& predicted_ranges,
+                                 const vector<float>& observed_ranges,
+                                 float range_min,
+                                 float range_max);
+
+  // void ObserveLaserCUDA(const std::vector<float>& ranges,
+  //                                  float range_min,
+  //                                  float range_max,
+  //                                  float angle_min,
+  //                                  float angle_max);
 
  private:
   // List of particles being tracked.
@@ -94,16 +124,6 @@ class ParticleFilter {
   Eigen::Vector2f prev_odom_loc_;
   float prev_odom_angle_;
   bool odom_initialized_;
-
-  // Motion model Hyperparameters
-  float k1, k2, k3, k4, k5;
-  int num_particles;
-  int num_lasers;
-  float i1, i2;
-  float dshort, dlong, sigmas;
-  int obs_update_skip_steps;
-  float obs_update_skip_dist;
-  int step_counter_;
 };
 }  // namespace particle_filter
 
