@@ -350,9 +350,11 @@ void Navigation::testSamplePaths(AckermannCurvatureDriveMsg& drive_msg) {
   goal_configs.push_back(nav_goal_loc_ - goal_delta);
   goal_configs.push_back(nav_goal_loc_ + goal_delta);
   // Get path
-  std::vector<Vector2f> trajectory = RRT_Tree::plan_trajectory(robot_loc_, robot_angle_, goal_configs, map_);
+  rrt_tree::RRT_Tree tree = rrt_tree::RRT_Tree(robot_loc_, robot_angle_);
+  std::vector<rrt_tree::RRT_Node> trajectory = tree.plan_trajectory(robot_loc_, robot_angle_, goal_configs, map_);
 
-  for (Vector2f local_target : trajectory) {
+  for (rrt_tree::RRT_Node local_target_node : trajectory) {
+    Vector2f local_target = local_target_node.odom_loc;
     auto ackermann_sampler_ = motion_primitives::AckermannSampler(params_);
     ackermann_sampler_.update(robot_vel_, robot_omega_, local_target, point_cloud_);
     auto paths = ackermann_sampler_.getSamples(50);

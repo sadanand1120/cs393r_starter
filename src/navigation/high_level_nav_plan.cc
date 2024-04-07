@@ -125,7 +125,7 @@ bool RRT_Tree::collision_free(Vector2f n, Vector2f o, const vector_map::VectorMa
   return true;
 }
 
-RRT_Node RRT_Tree::apply_rand_action(RRT_Node closest) {
+RRT_Node RRT_Tree::apply_rand_action(RRT_Node closest, const vector_map::VectorMap map) {
   // Steps here:
   // 1. Sample random action from [min_curv, max_curv],  [min_vel, max_vel], [0, max_time_step]
   // 2. Apply action over time step to current node
@@ -144,32 +144,28 @@ RRT_Node RRT_Tree::apply_rand_action(RRT_Node closest) {
 
   // Apply Action to closest
   Vector2f new_pose = Vector2f(0.0, 0.0);
+  double cur_angular_change = 0.0;
   if (new_curve == 0) {
     // Only need to update x pose in base link frame
     new_pose.x() += new_vel * new_time;  // TODO: What is the actual duration here?
   } else {
-    double cur_angular_change = new_curve * new_vel * new_time;  // TODO: What is the actual duration here?
+    cur_angular_change = new_curve * new_vel * new_time;  // TODO: What is the actual duration here?
 
     // Center of turning
     Eigen::Vector2f center_of_turning = Vector2f(0, 1 / new_curve);
 
     // New pose in base link frame
     Eigen::Rotation2Df r(cur_angular_change);
-    Vector2f arc_trans_pose = r * (-1 * center_of_turning) + center_of_turning;
-
-    // New pose in map frame
-    Eigen::Rotation2Df r_adj(angular_change);
-    Vector2f rotated_arc_trans_pose = r * arc_trans_pose;
-    new_pose += rotated_arc_trans_pose;
+    new_pose = r * (-1 * center_of_turning) + center_of_turning;
   }
 
   Vector2f world_frame_new_pose = new_pose + closest.odom_loc;
   double world_frame_new_angle =
-      angular_change + closest.odom_angle
+      cur_angular_change + closest.odom_angle;
 
-                       // Check collision
-                       if (collision_free(world_frame_new_pose, world_frame_new_angle, closest)) {
-    return {.parent = closest,
+  // Check collision
+  if (collision_free(world_frame_new_pose, closest.odom_loc, map)) {
+        return {.parent = &closest,
             .inbound_curvature = new_curve,
             .inboud_vel = new_vel,
             .odom_loc = world_frame_new_pose,
@@ -254,11 +250,11 @@ std::vector<RRT_Node> RRT_Tree::plan_trajectory(const Vector2f& odom_loc, const 
   Vector2f sampled_config = sample_configs(min_x, min_y, max_x, max_y);
 
   // Get closest rrt node
-  RRT_Node closest = rrt_tree.find_closest(sample_config);
+  RRT_Node closest = rrt_tree.find_closest(sampled_config);
 
   // Apply random action from closest
   // If obstacle return NULL
-  RRT_Node new_config = apply_rand_action(closest);
+  RRT_Node new_config = apply_rand_action(closest, map);
 
   // If not null add to tree
   if (new_config != NULL) {
@@ -266,7 +262,7 @@ std::vector<RRT_Node> RRT_Tree::plan_trajectory(const Vector2f& odom_loc, const 
   }
 
   // Repeat until goald found
-  while (!in_goal_config(new_config, goal_configs)) {
+  while (!in_goal_config(new_config.odom_loc, goal_configs)) {
     // Sample new configs
     Vector2f sampled_config = sample_configs(min_x, min_y, max_x, max_y);
 

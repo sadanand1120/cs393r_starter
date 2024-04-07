@@ -73,7 +73,7 @@ class RRT_Tree {
 
   bool collision_free(Vector2f n, Vector2f o, const vector_map::VectorMap map);
 
-  RRT_Node apply_rand_action(RRT_Node closest);
+  RRT_Node apply_rand_action(RRT_Node closest, const vector_map::VectorMap map);
 
   bool in_goal_config(Vector2f new_config, std::vector<Vector2f> goal_configs);
 
