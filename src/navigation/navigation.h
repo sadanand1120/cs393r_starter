@@ -42,48 +42,50 @@ using amrl_msgs::AckermannCurvatureDriveMsg;
 using amrl_msgs::VisualizationMsg;
 using Eigen::Rotation2Df;
 using Eigen::Vector2f;
+using geometry::line2f;
 using std::string;
 using std::vector;
-using geometry::line2f;
 
 using namespace math_util;
 using namespace ros_helpers;
 
 namespace rrt_tree {
-  struct RRT_Node {
-    //RRT_Node(struct RRT_Node* parent, double inbound_curvature, double inbound_vel, Eigen::Vector2f& odom_loc, float odom_angle);
-    struct RRT_Node* parent;
-    double inbound_curvature;
-    double inbound_vel;
-    Eigen::Vector2f odom_loc;
-    float odom_angle;
-  };
-  
-  // Constructor
-  class RRT_Tree{
-    public:
-      explicit RRT_Tree(const Eigen::Vector2f& root_odom_loc, const float root_odom_angle);
-
-      struct RRT_Node find_closest(Eigen::Vector2f sampled_config);
-
-      std::vector<struct RRT_Node> make_trajectory(struct RRT_Node found_goal_config);
-
-      Vector2f sample_configs(double min_x, double min_y, double max_x, double max_y);
-
-      bool collision_free(Vector2f n, Vector2f o, const vector_map::VectorMap map);
-
-      RRT_Node apply_rand_action(RRT_Node closest);
-
-      bool in_goal_config(Vector2f new_config, std::vector<Vector2f> goal_configs);
-
-      std::vector<RRT_Node> plan_trajectory(const Vector2f& odom_loc, const float odom_angle, std::vector<Vector2f> goal_configs, const vector_map::VectorMap map);
-    
-    private:
-      std::vector<RRT_Node> tree;
-      RRT_Node root;
-      util_random::Random rng_;
-  };
+struct RRT_Node {
+  // RRT_Node(struct RRT_Node* parent, double inbound_curvature, double inbound_vel, Eigen::Vector2f& odom_loc, float
+  // odom_angle);
+  struct RRT_Node* parent;
+  double inbound_curvature;
+  double inbound_vel;
+  Eigen::Vector2f odom_loc;
+  float odom_angle;
 };
+
+// Constructor
+class RRT_Tree {
+ public:
+  explicit RRT_Tree(const Eigen::Vector2f& root_odom_loc, const float root_odom_angle);
+
+  struct RRT_Node find_closest(Eigen::Vector2f sampled_config);
+
+  std::vector<struct RRT_Node> make_trajectory(struct RRT_Node found_goal_config);
+
+  Vector2f sample_configs(double min_x, double min_y, double max_x, double max_y);
+
+  bool collision_free(Vector2f n, Vector2f o, const vector_map::VectorMap map);
+
+  RRT_Node apply_rand_action(RRT_Node closest);
+
+  bool in_goal_config(Vector2f new_config, std::vector<Vector2f> goal_configs);
+
+  std::vector<RRT_Node> plan_trajectory(const Vector2f& odom_loc, const float odom_angle,
+                                        std::vector<Vector2f> goal_configs, const vector_map::VectorMap map);
+
+ private:
+  std::vector<RRT_Node> tree;
+  RRT_Node root;
+  util_random::Random rng_;
+};
+};  // namespace rrt_tree
 
 namespace ros {
 class NodeHandle;
@@ -123,9 +125,7 @@ struct Action_Space {
 class Navigation {
  public:
   // Constructor
-  explicit Navigation(const string& map_name,
-                      NavigationParams& params,
-                      ros::NodeHandle* n);
+  explicit Navigation(const string& map_name, NavigationParams& params, ros::NodeHandle* n);
 
   // Used in callback from localization to update position.
   void UpdateLocation(const Eigen::Vector2f& loc, float angle);
@@ -133,11 +133,7 @@ class Navigation {
   void PruneCommandQueue();
 
   // Used in callback for odometry messages to update based on odometry.
-  void UpdateOdometry(const Eigen::Vector2f& loc,
-                      float angle,
-                      const Eigen::Vector2f& vel,
-                      float ang_vel,
-                      double time);
+  void UpdateOdometry(const Eigen::Vector2f& loc, float angle, const Eigen::Vector2f& vel, float ang_vel, double time);
 
   // Updates based on an observed laser scan
   void ObservePointCloud(const std::vector<Eigen::Vector2f>& cloud, double time);
@@ -149,7 +145,7 @@ class Navigation {
 
   // Main function called continously from main
   void Run();
-  
+
   // Used to set the next target pose.
   void SetNavGoal(const Eigen::Vector2f& loc, float angle);
   // Used to set autonomy status
@@ -163,7 +159,7 @@ class Navigation {
 
   // Autonomy
   bool autonomy_enabled_;
-  
+
   bool odom_initialized_;
   bool localization_initialized_;
 
@@ -189,8 +185,8 @@ class Navigation {
   std::deque<Command> command_history_;
 
   // Latest observed point cloud.
-  std::vector<Eigen::Vector2f> point_cloud_;  // base_link frame
-  std::vector<Eigen::Vector2f> fp_point_cloud_; // forward predicted base_link frame
+  std::vector<Eigen::Vector2f> point_cloud_;     // base_link frame
+  std::vector<Eigen::Vector2f> fp_point_cloud_;  // forward predicted base_link frame
   double t_point_cloud_;
 
   // Whether navigation is complete.
@@ -202,8 +198,6 @@ class Navigation {
 
   // Ackermann Path Sampler object
   motion_primitives::AckermannSampler ackermann_sampler_;
-
-  
 
   void test1DTOC();
 

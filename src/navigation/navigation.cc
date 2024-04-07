@@ -57,9 +57,7 @@ string GetMapFileFromName(const string& map) {
   return maps_dir_ + "/" + map + "/" + map + ".vectormap.txt";
 }
 
-Navigation::Navigation(const string& map_name,
-                       NavigationParams& params,
-                       ros::NodeHandle* n)
+Navigation::Navigation(const string& map_name, NavigationParams& params, ros::NodeHandle* n)
     : params_(params),
       autonomy_enabled_(false),
       odom_initialized_(false),
@@ -74,13 +72,11 @@ Navigation::Navigation(const string& map_name,
   map_.Load(GetMapFileFromName(map_name));
   drive_pub_ = n->advertise<AckermannCurvatureDriveMsg>("ackermann_curvature_drive", 1);
   viz_pub_ = n->advertise<VisualizationMsg>("visualization", 10);
-  local_viz_msg_ =
-      visualization::NewVisualizationMessage("base_link", "navigation_local");
+  local_viz_msg_ = visualization::NewVisualizationMessage("base_link", "navigation_local");
   global_viz_msg_ = visualization::NewVisualizationMessage("map", "navigation_global");
   InitRosHeader("base_link", &drive_msg_.header);
 
-  assert(params_.obstacle_margin <
-         (1.0f / params_.max_curvature - params_.robot_width) / 2);
+  assert(params_.obstacle_margin < (1.0f / params_.max_curvature - params_.robot_width) / 2);
 }
 
 void Navigation::SetNavGoal(const Vector2f& loc, float angle) {
@@ -112,13 +108,12 @@ void Navigation::UpdateLocation(const Vector2f& loc, float angle) {
 
 void Navigation::PruneCommandQueue() {
   if (command_history_.empty()) return;
-  const double update_time =
-      min(t_odom_, t_point_cloud_);  // conservative time range for command history
+  const double update_time = min(t_odom_, t_point_cloud_);  // conservative time range for command history
 
   for (auto cmd_it = command_history_.begin(); cmd_it != command_history_.end();) {
     if (cmd_it->time < update_time - params_.dt) {  // we received another command that
                                                     // is closer to our update time
-                                                    // anything farther in time away than 1 dt from 
+                                                    // anything farther in time away than 1 dt from
                                                     // update time is irrelevant
       cmd_it = command_history_.erase(cmd_it);
     } else {
@@ -127,12 +122,11 @@ void Navigation::PruneCommandQueue() {
   }
 }
 
-void Navigation::UpdateOdometry(
-    const Vector2f& loc, float angle, const Vector2f& vel, float ang_vel, double time) {
+void Navigation::UpdateOdometry(const Vector2f& loc, float angle, const Vector2f& vel, float ang_vel, double time) {
   if (FLAGS_v > 0) {
     cout << "================ [Navigation] UPDATE ODOMETRY ================" << endl;
-    cout << "loc: " << loc << " angle: " << angle << " vel: " << vel.transpose()
-         << " ang_vel: " << ang_vel << " time: " << time << endl;
+    cout << "loc: " << loc << " angle: " << angle << " vel: " << vel.transpose() << " ang_vel: " << ang_vel
+         << " time: " << time << endl;
     cout << "==============================================================\n" << endl;
   }
 
@@ -175,36 +169,31 @@ void Navigation::ForwardPredict(double time) {
     cout << "forward time: " << time << endl;
   }
 
-  Eigen::Affine2f fp_odom_tf =
-      Eigen::Translation2f(odom_loc_) * Eigen::Rotation2Df(odom_angle_);
+  Eigen::Affine2f fp_odom_tf = Eigen::Translation2f(odom_loc_) * Eigen::Rotation2Df(odom_angle_);
   Eigen::Affine2f fp_local_tf = Eigen::Affine2f::Identity();
   for (const Command& cmd : command_history_) {
     const float cmd_v = cmd.drive_msg.velocity;
     const float cmd_omega = cmd.drive_msg.velocity * cmd.drive_msg.curvature;
     // Assume constant velocity and omega over the time interval
-    // want to compute distance traveled (vel * dt) and arc length (ang_vel * dt) 
-    // and the value of the linear and angular velocity to use gives us the area 
+    // want to compute distance traveled (vel * dt) and arc length (ang_vel * dt)
+    // and the value of the linear and angular velocity to use gives us the area
     // of the trapezoid in the v-t space when we multiply by dt
     const float v_mid = (robot_vel_.norm() + cmd_v) / 2.0f;
     const float omega_mid = (robot_omega_ + cmd_omega) / 2.0f;
 
     // Forward Predict Odometry
-    if (cmd.time >=
-        t_odom_ - params_.dt) {  // start forward integrating from command before our
-                                 // most recent odometry (we are still executing the
-                                 // command in the timestep before the odom message)
+    if (cmd.time >= t_odom_ - params_.dt) {  // start forward integrating from command before our
+                                             // most recent odometry (we are still executing the
+                                             // command in the timestep before the odom message)
       // we know that this gives us the last command because the controller runs at a
       // fixed frequency and you generate one command per controller iteration every dt
 
       // in every iteration besides the first command in the control history, t_odom_ <
       // cmd.time
-      const double dt =
-          (t_odom_ >
-           cmd.time)  // find time that we are executing the previous command for
-              ? min<double>(params_.dt - (t_odom_ - cmd.time), params_.dt)
-              : min<double>(
-                    time - cmd.time,
-                    params_.dt);  // upper bound on how long we execute a command
+      const double dt = (t_odom_ > cmd.time)  // find time that we are executing the previous command for
+                            ? min<double>(params_.dt - (t_odom_ - cmd.time), params_.dt)
+                            : min<double>(time - cmd.time,
+                                          params_.dt);  // upper bound on how long we execute a command
 
       // see trapezoid comment above for v_mid and omega_mid
       const float dtheta = omega_mid * dt;
@@ -220,8 +209,7 @@ void Navigation::ForwardPredict(double time) {
       // steps
       Eigen::Matrix2f V = Eigen::Matrix2f::Identity();
       if (fabs(dtheta) > kEpsilon) {
-        V << sin(dtheta) / dtheta, (cos(dtheta) - 1) / dtheta,
-            (1 - cos(dtheta)) / dtheta, sin(dtheta) / dtheta;
+        V << sin(dtheta) / dtheta, (cos(dtheta) - 1) / dtheta, (1 - cos(dtheta)) / dtheta, sin(dtheta) / dtheta;
       }
       // Exponential map of translation part of se2 (in local frame)
       Eigen::Vector2f dloc = V * Eigen::Vector2f(ds, 0);
@@ -240,17 +228,14 @@ void Navigation::ForwardPredict(double time) {
       if (FLAGS_v > 1) {
         cout << "dtheta " << dtheta << ", ds " << ds << endl;
         cout << "V \n" << V << endl;
-        cout << "odom_loc_: " << odom_loc_.transpose()
-             << ", odom_angle_: " << odom_angle_ << endl;
+        cout << "odom_loc_: " << odom_loc_.transpose() << ", odom_angle_: " << odom_angle_ << endl;
       }
     }
 
     // Forward Predict Point Cloud
     if (cmd.time >= t_point_cloud_ - params_.dt) {
-      const double dt =
-          (t_point_cloud_ > cmd.time)
-              ? min<double>(params_.dt - (t_point_cloud_ - cmd.time), params_.dt)
-              : min<double>(time - cmd.time, params_.dt);
+      const double dt = (t_point_cloud_ > cmd.time) ? min<double>(params_.dt - (t_point_cloud_ - cmd.time), params_.dt)
+                                                    : min<double>(time - cmd.time, params_.dt);
       // cout << "dt " << dt << endl;
       // cout << "params_.dt " << params_.dt << endl;
       // cout << "t_point_cloud_ " << t_point_cloud_ << " cmd.time " << cmd.time <<
@@ -260,15 +245,13 @@ void Navigation::ForwardPredict(double time) {
       // Translation coeff for exponential map of se2
       Eigen::Matrix2f V = Eigen::Matrix2f::Identity();
       if (fabs(dtheta) > kEpsilon) {
-        V << sin(dtheta) / dtheta, (cos(dtheta) - 1) / dtheta,
-            (1 - cos(dtheta)) / dtheta, sin(dtheta) / dtheta;
+        V << sin(dtheta) / dtheta, (cos(dtheta) - 1) / dtheta, (1 - cos(dtheta)) / dtheta, sin(dtheta) / dtheta;
       }
       // cout << "V" << V << endl;
       // Exponential map of translation part of se2 (in local frame)
       Eigen::Vector2f dloc = V * Eigen::Vector2f(ds, 0);
       // Update local_tf in local frame
-      fp_local_tf =
-          fp_local_tf * Eigen::Translation2f(dloc) * Eigen::Rotation2Df(dtheta);
+      fp_local_tf = fp_local_tf * Eigen::Translation2f(dloc) * Eigen::Rotation2Df(dtheta);
     }
   }
 
@@ -332,37 +315,23 @@ void Navigation::test1DTOC() {
   drive_msg_.curvature = c;
   float theta = M_PI_4;
   Vector2f goal_loc =
-      robot_start_loc_ + Rotation2Df(robot_start_angle_) *
-                             Vector2f(fabs(r) * sin(theta), r * (1 - cos(theta)));
+      robot_start_loc_ + Rotation2Df(robot_start_angle_) * Vector2f(fabs(r) * sin(theta), r * (1 - cos(theta)));
 
   // Vector2f goal_loc_in_base_link_ = goal_loc - odom_loc_;
   visualization::DrawCross(Vector2f(0, 0), 0.5, 32762, global_viz_msg_);
   visualization::DrawCross(goal_loc, 0.1, 32762, global_viz_msg_);
   printf("Running 1D TOC test\n");
-  printf("odom start loc x: %0.3f y: %0.3f theta:%0.3f\n",
-         odom_start_loc_[0],
-         odom_start_loc_[1],
-         odom_start_angle_);
-  printf("robot start loc x: %0.3f y: %0.3f theta %0.3f",
-         robot_start_loc_[0],
-         robot_start_loc_[1],
-         robot_start_angle_);
-  printf("robot loc x: %0.3f y: %0.3f theta %0.3f",
-         robot_loc_[0],
-         robot_loc_[1],
-         robot_angle_);
-  printf("odom loc x: %0.3f y: %0.3f theta:%0.3f\n",
-         odom_loc_[0],
-         odom_loc_[1],
-         odom_angle_);
+  printf("odom start loc x: %0.3f y: %0.3f theta:%0.3f\n", odom_start_loc_[0], odom_start_loc_[1], odom_start_angle_);
+  printf("robot start loc x: %0.3f y: %0.3f theta %0.3f", robot_start_loc_[0], robot_start_loc_[1], robot_start_angle_);
+  printf("robot loc x: %0.3f y: %0.3f theta %0.3f", robot_loc_[0], robot_loc_[1], robot_angle_);
+  printf("odom loc x: %0.3f y: %0.3f theta:%0.3f\n", odom_loc_[0], odom_loc_[1], odom_angle_);
   printf("goal loc x: %0.3f y: %0.3f\n", goal_loc[0], goal_loc[1]);
   float d = (goal_loc - robot_loc_).norm();
   if (d > params_.goal_tolerance) {
     float left_theta = acos((Sq(r) + Sq(r) - Sq(d)) / (2 * Sq(r)));  // Law of Cosines
     float left_arc_length = fabs(r * left_theta);
     motion_primitives::ConstantCurvatureArc curve(c, left_arc_length);
-    curve.getControlOnCurve(
-        params_.linear_limits, robot_vel_.norm(), params_.dt, drive_msg_.velocity);
+    curve.getControlOnCurve(params_.linear_limits, robot_vel_.norm(), params_.dt, drive_msg_.velocity);
   } else {
     drive_msg_.velocity = 0;
     printf("Test complete\n");
@@ -373,20 +342,17 @@ void Navigation::test1DTOC() {
 void Navigation::testSamplePaths(AckermannCurvatureDriveMsg& drive_msg) {
   // Sample paths
 
-  printf("odom loc x: %0.3f y: %0.3f theta:%0.3f\n",
-         odom_loc_[0],
-         odom_loc_[1],
-         odom_angle_);
-  
-  //Create Goal Configs
+  printf("odom loc x: %0.3f y: %0.3f theta:%0.3f\n", odom_loc_[0], odom_loc_[1], odom_angle_);
+
+  // Create Goal Configs
   std::vector<Vector2f> goal_configs;
-  Vector2f goal_delta(0.5,0.5);
+  Vector2f goal_delta(0.5, 0.5);
   goal_configs.push_back(nav_goal_loc_ - goal_delta);
   goal_configs.push_back(nav_goal_loc_ + goal_delta);
   // Get path
   std::vector<Vector2f> trajectory = RRT_Tree::plan_trajectory(robot_loc_, robot_angle_, goal_configs, map_);
 
-  for (Vector2f local_target : trajectory){
+  for (Vector2f local_target : trajectory) {
     auto ackermann_sampler_ = motion_primitives::AckermannSampler(params_);
     ackermann_sampler_.update(robot_vel_, robot_omega_, local_target, point_cloud_);
     auto paths = ackermann_sampler_.getSamples(50);
@@ -394,31 +360,21 @@ void Navigation::testSamplePaths(AckermannCurvatureDriveMsg& drive_msg) {
     auto ackermann_evaluator_ = motion_primitives::AckermannEvaluator(params_);
     ackermann_evaluator_.update(local_target);
     auto best_path = ackermann_evaluator_.findBestPath(paths);
-    best_path->getControlOnCurve(
-        params_.linear_limits, robot_vel_.norm(), params_.dt, drive_msg.velocity);
+    best_path->getControlOnCurve(params_.linear_limits, robot_vel_.norm(), params_.dt, drive_msg.velocity);
     drive_msg.curvature = best_path->curvature();
 
     // Visualize paths
     // int idx = 0;
     for (auto path : paths) {
-      visualization::DrawPathOption(path->curvature(),
-                                    path->arc_length(),
-                                    path->clearance(),
-                                    32762,
-                                    false,
+      visualization::DrawPathOption(path->curvature(), path->arc_length(), path->clearance(), 32762, false,
                                     local_viz_msg_);
       // cout << "idx: " << idx++ <<  ", Curvature: " << path->curvature() << " Arc
       // Length: " << path->arc_length()
       //      << " Clearance: " << path->clearance() << endl;
     }
 
-    visualization::DrawPathOption(best_path->curvature(),
-                                  best_path->arc_length(),
-                                  best_path->clearance(),
-                                  10000,
-                                  false,
+    visualization::DrawPathOption(best_path->curvature(), best_path->arc_length(), best_path->clearance(), 10000, false,
                                   local_viz_msg_);
-                              
   }
 
   return;
