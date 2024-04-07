@@ -1,9 +1,10 @@
 #include "navigation.h"
 
-namespace RRT_Tree{
+namespace RRT{
+
 RRT_Tree::RRT_Tree(const Vector2f& root_odom_loc, const float root_odom_angle){
-    //RRT_Node root = {.parent = NULL, .inbound_curvature = 0.0, .inboud_vel = 0.0, .odom_loc = root_odom_loc, .odom_angle = root_odom_angle};
-    RRT_Node root = RRT_Node(NULL, 0.0, 0.0, root_odom_loc, root_odom_angle);
+    RRT_Node root = {.parent = NULL, .inbound_curvature = 0.0, .inboud_vel = 0.0, .odom_loc = root_odom_loc, .odom_angle = root_odom_angle};
+    //RRT_Node::RRT_Node root = RRT_Node(NULL, 0.0, 0.0, root_odom_loc, root_odom_angle);
 
     std::vector<RRT_Node> tree = std::vector<RRT_Node>();
 
@@ -28,15 +29,15 @@ RRT_Node RRT_Tree::find_closest(Vector2f sampled_config){
 std::vector<RRT_Node> RRT_Tree::make_trajectory(struct RRT_Node found_goal_config){
     std::vector<RRT_Node> trajectory = std::vector<RRT_Node>();
 
-    RRT_Node current = found_goal_config;
+    RRT_Node* current = &found_goal_config;
 
-    while(current != NULL){
-        trajectory.push_back(current)
+    while(current->parent != NULL){
+        trajectory.push_back(*current);
 
-        current = current.parent
+        current = current->parent;
     }
 
-    trajectory.reverse();
+    std::reverse(trajectory.begin(), trajectory.end());
 
     return trajectory;
 }

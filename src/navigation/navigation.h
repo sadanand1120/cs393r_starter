@@ -44,15 +44,16 @@ using std::vector;
 using namespace math_util;
 using namespace ros_helpers;
 
-namespace RRT_Tree {
-  struct RRT_Node {
-    RRT_Node(struct RRT_Node* parent, double inbound_curvature, double inbound_vel, Eigen::Vector2f& odom_loc, float odom_angle);
+namespace RRT {
+
+struct RRT_Node {
     struct RRT_Node* parent;
     double inbound_curvature;
     double inboud_vel;
-    Eigen::Vector2f& odom_loc;
+    Eigen::Vector2f odom_loc;
     float odom_angle;
-  };
+};
+
   
   // Constructor
   class RRT_Tree{
@@ -77,7 +78,7 @@ namespace RRT_Tree {
       std::vector<RRT_Node> tree;
       RRT_Node root;
   };
-};
+} // namespace RRT
 
 namespace ros {
 class NodeHandle;
