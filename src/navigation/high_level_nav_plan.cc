@@ -1,18 +1,21 @@
 #include "navigation.h"
 
-namespace RRT_Tree{
+namespace rrt_tree{
 RRT_Tree::RRT_Tree(const Vector2f& root_odom_loc, const float root_odom_angle){
-    //RRT_Node root = {.parent = NULL, .inbound_curvature = 0.0, .inboud_vel = 0.0, .odom_loc = root_odom_loc, .odom_angle = root_odom_angle};
-    RRT_Node root = RRT_Node(NULL, 0.0, 0.0, root_odom_loc, root_odom_angle);
+    root.parent = NULL;
+    root.inbound_curvature = 0.0;
+    root.inbound_vel = 0.0;
+    root.odom_loc = root_odom_loc;
+    root.odom_angle = root_odom_angle;
 
-    std::vector<RRT_Node> tree = std::vector<RRT_Node>();
+    tree = std::vector<RRT_Node>();
 
     tree.push_back(root);
 }
 
 RRT_Node RRT_Tree::find_closest(Vector2f sampled_config){
     double min_dist = -1.0;
-    RRT_Node best_node = this->root;
+    RRT_Node best_node = root;
     for(RRT_Node n : tree){
         Eigen::Vector2f dist_to_config = n.odom_loc - sampled_config;
         float dist = dist_to_config.norm();
@@ -30,13 +33,15 @@ std::vector<RRT_Node> RRT_Tree::make_trajectory(struct RRT_Node found_goal_confi
 
     RRT_Node current = found_goal_config;
 
-    while(current != NULL){
-        trajectory.push_back(current)
+    while(current.parent != NULL){
+        trajectory.push_back(current);
 
-        current = current.parent
+        current = *(current.parent);
     }
 
-    trajectory.reverse();
+    trajectory.push_back(current);
+
+    std::reverse(trajectory.begin(), trajectory.end());
 
     return trajectory;
 }
@@ -76,17 +81,18 @@ bool RRT_Tree::collision_free(Vector2f n, Vector2f o, const vector_map::VectorMa
     Vector2f o7 = Vector2f(o.x() + margin, o.y());
     Vector2f o8 = Vector2f(o.x() - margin, o.y());
 
-    Line2f l0 = Line2f(o, n);
-    Line2f l1 = Line2f(o1, n1);
-    Line2f l2 = Line2f(o2, n2);
-    Line2f l3 = Line2f(o3, n3);
-    Line2f l4 = Line2f(o4, n4);
-    Line2f l5 = Line2f(o5, n5);
-    Line2f l6 = Line2f(o6, n6);
-    Line2f l7 = Line2f(o7, n7);
-    Line2f l8 = Line2f(o8, n8);
+    line2f l0 = line2f(o, n);
+    line2f l1 = line2f(o1, n1);
+    line2f l2 = line2f(o2, n2);
+    line2f l3 = line2f(o3, n3);
+    line2f l4 = line2f(o4, n4);
+    line2f l5 = line2f(o5, n5);
+    line2f l6 = line2f(o6, n6);
+    line2f l7 = line2f(o7, n7);
+    line2f l8 = line2f(o8, n8);
 
-    for (auto line : map){
+    for (size_t j = 0; j < map.lines.size(); ++j){
+        const line2f line = map.lines[j];
         if(line.Intersects(l0)) { return false; }
         if(line.Intersects(l1)) { return false; }
         if(line.Intersects(l2)) { return false; }
@@ -108,14 +114,15 @@ RRT_Node RRT_Tree::apply_rand_action(RRT_Node closest){
     // 3. Check if obstacle free
 
     // Sample new action
-    double cur_min_curve = max(Action_Space.min_curv, closest.inbound_curvature - Action_Space.delta_curve);
-    double cur_max_curve = min(Action_Space.max_curv, closest.inbound_curvature + Action_Space.delta_curve);
-    double cur_min_vel = max(Action_Space.min_vel, closest.inboud_vel - Action_Space.delta_vel);
-    double cur_max_vel = min(Action_Space.max_vel, closest.inbound_vel + Action_Space.delta_vel);
+    navigation::Action_Space aspace;
+    double cur_min_curve = max(aspace.min_curve, closest.inbound_curvature - aspace.delta_curve);
+    double cur_max_curve = min(aspace.max_curve, closest.inbound_curvature + aspace.delta_curve);
+    double cur_min_vel = max(aspace.min_vel, closest.inbound_vel - aspace.delta_vel);
+    double cur_max_vel = min(aspace.max_vel, closest.inbound_vel + aspace.delta_vel);
 
-    double new_vel = rng._UniformRandom(cur_min_vel, cur_max_vel);
-    double new_curve = rng._UniformRandom(cur_min_curve, cur_max_curve);
-    double new_time = rng._UniformRandom(0, Action_Space.max_time_step);
+    double new_vel = rng_.UniformRandom(cur_min_vel, cur_max_vel);
+    double new_curve = rng_.UniformRandom(cur_min_curve, cur_max_curve);
+    double new_time = rng_.UniformRandom(0, aspace.max_time_step);
 
     // Apply Action to closest
     Vector2f new_pose = Vector2f(0.0, 0.0);
@@ -124,7 +131,6 @@ RRT_Node RRT_Tree::apply_rand_action(RRT_Node closest){
       new_pose.x() += new_vel * new_time;  // TODO: What is the actual duration here?
     } else {
       double cur_angular_change = new_curve * new_vel * new_time;  // TODO: What is the actual duration here?
-      angular_change += cur_angular_change;                                  // TODO: What is the actual duration here?
 
       // Center of turning
       Eigen::Vector2f center_of_turning = Vector2f(0, 1 / new_curve);
@@ -152,7 +158,7 @@ RRT_Node RRT_Tree::apply_rand_action(RRT_Node closest){
 
 bool RRT_Tree::in_goal_config(Vector2f new_config, std::vector<Vector2f> goal_configs){
     if (new_config == NULL) { return false; }
-    result = true;
+    bool result = true;
 
     if(new_config[0] < goal_configs[0][0] || new_config[0] > goal_configs[1][0]) { result = false; }
     if(new_config[1] < goal_configs[0][1] || new_config[1] > goal_configs[1][1]) { result = false; }
@@ -160,7 +166,7 @@ bool RRT_Tree::in_goal_config(Vector2f new_config, std::vector<Vector2f> goal_co
     return result;
 }
 
-std::vector<Vector2f> RRT_Tree::plan_trajectory(const Vector2f& odom_loc, const float odom_angle, std::vector<Vector2f> goal_configs, const vector_map::VectorMap map) {
+std::vector<RRT_Node> RRT_Tree::plan_trajectory(const Vector2f& odom_loc, const float odom_angle, std::vector<Vector2f> goal_configs, const vector_map::VectorMap map) {
     // Calculate a trajectory for the robot using RRT
 
     // Steps:
@@ -176,12 +182,12 @@ std::vector<Vector2f> RRT_Tree::plan_trajectory(const Vector2f& odom_loc, const 
     double min_y = -1.0;
     double max_x = -1.0;
     double max_y = -1.0;
-    for (const auto& map_line : map_.lines) {
-        double line_x1 = map_line.p0[0]
-        double line_x2 = map_line.p1[0]
+    for (const auto& map_line : map.lines) {
+        double line_x1 = map_line.p0[0];
+        double line_x2 = map_line.p1[0];
         
-        double line_y1 = map_line.p0[1]
-        double line_y2 = map_line.p1[1]
+        double line_y1 = map_line.p0[1];
+        double line_y2 = map_line.p1[1];
 
         if(min_x == -1.0 || line_x1 < min_x) {min_x = line_x1;}
         if(min_x == -1.0 || line_x2 < min_x) {min_x = line_x2;}
@@ -209,7 +215,7 @@ std::vector<Vector2f> RRT_Tree::plan_trajectory(const Vector2f& odom_loc, const 
 
     // If not null add to tree 
     if (new_config != NULL){
-        rrt_tree.tree.push_back(new_config)
+        rrt_tree.tree.push_back(new_config);
     }
 
     // Repeat until goald found
@@ -218,7 +224,7 @@ std::vector<Vector2f> RRT_Tree::plan_trajectory(const Vector2f& odom_loc, const 
         Vector2f sampled_config = sample_configs(min_x, min_y, max_x, max_y);
 
         // Get closest rrt node
-        RRT_Node closest = rrt_tree.find_closest(sample_config);
+        RRT_Node closest = rrt_tree.find_closest(sampled_config);
 
         // Apply random action from closest
         // If obstacle return NULL
@@ -226,10 +232,10 @@ std::vector<Vector2f> RRT_Tree::plan_trajectory(const Vector2f& odom_loc, const 
 
         // If not null add to tree 
         if (new_config != NULL){
-            rrt_tree.tree.push_back(new_config)
+            rrt_tree.tree.push_back(new_config);
         }
     }
 
-    return rrt_tree.make_trajectory(new_config)
+    return rrt_tree.make_trajectory(new_config);
 }
 }

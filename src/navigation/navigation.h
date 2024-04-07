@@ -34,23 +34,28 @@
 #include "ros/ros_helpers.h"
 #include "vector_map/vector_map.h"
 
+#include "shared/math/line2d.h"
+#include "shared/math/math_util.h"
+#include "shared/util/random.h"
+
 using amrl_msgs::AckermannCurvatureDriveMsg;
 using amrl_msgs::VisualizationMsg;
 using Eigen::Rotation2Df;
 using Eigen::Vector2f;
 using std::string;
 using std::vector;
+using geometry::line2f;
 
 using namespace math_util;
 using namespace ros_helpers;
 
-namespace RRT_Tree {
+namespace rrt_tree {
   struct RRT_Node {
-    RRT_Node(struct RRT_Node* parent, double inbound_curvature, double inbound_vel, Eigen::Vector2f& odom_loc, float odom_angle);
+    //RRT_Node(struct RRT_Node* parent, double inbound_curvature, double inbound_vel, Eigen::Vector2f& odom_loc, float odom_angle);
     struct RRT_Node* parent;
     double inbound_curvature;
-    double inboud_vel;
-    Eigen::Vector2f& odom_loc;
+    double inbound_vel;
+    Eigen::Vector2f odom_loc;
     float odom_angle;
   };
   
@@ -71,11 +76,12 @@ namespace RRT_Tree {
 
       bool in_goal_config(Vector2f new_config, std::vector<Vector2f> goal_configs);
 
-      std::vector<Vector2f> plan_trajectory(const Vector2f& odom_loc, const float odom_angle, std::vector<Vector2f> goal_configs, const vector_map::VectorMap map);
+      std::vector<RRT_Node> plan_trajectory(const Vector2f& odom_loc, const float odom_angle, std::vector<Vector2f> goal_configs, const vector_map::VectorMap map);
     
     private:
       std::vector<RRT_Node> tree;
       RRT_Node root;
+      util_random::Random rng_;
   };
 };
 
