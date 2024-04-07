@@ -165,21 +165,28 @@ RRT_Node RRT_Tree::apply_rand_action(RRT_Node closest, const vector_map::VectorM
 
   // Check collision
   if (collision_free(world_frame_new_pose, closest.odom_loc, map)) {
-        return {.parent = &closest,
-            .inbound_curvature = new_curve,
-            .inboud_vel = new_vel,
-            .odom_loc = world_frame_new_pose,
-            .odom_angle = world_frame_new_angle};
+        RRT_Node new_node;
+        new_node.parent = &closest;
+        new_node.inbound_curvature = new_curve;
+        new_node.inbound_vel = new_vel;
+        new_node.odom_loc = world_frame_new_pose;
+        new_node.odom_angle = world_frame_new_angle;
+
+        return new_node;
   }
   else {
-    return NULL;
+    RRT_Node new_node;
+    new_node.parent = &closest;
+    new_node.inbound_curvature = new_curve;
+    new_node.inbound_vel = new_vel;
+    new_node.odom_loc = world_frame_new_pose;
+    new_node.odom_angle = world_frame_new_angle;
+    new_node.broken = true;
+    return new_node;
   }
 }
 
 bool RRT_Tree::in_goal_config(Vector2f new_config, std::vector<Vector2f> goal_configs) {
-  if (new_config == NULL) {
-    return false;
-  }
   bool result = true;
 
   if (new_config[0] < goal_configs[0][0] || new_config[0] > goal_configs[1][0]) {
@@ -257,7 +264,7 @@ std::vector<RRT_Node> RRT_Tree::plan_trajectory(const Vector2f& odom_loc, const 
   RRT_Node new_config = apply_rand_action(closest, map);
 
   // If not null add to tree
-  if (new_config != NULL) {
+  if (!new_config.broken) {
     rrt_tree.tree.push_back(new_config);
   }
 
@@ -271,10 +278,10 @@ std::vector<RRT_Node> RRT_Tree::plan_trajectory(const Vector2f& odom_loc, const 
 
     // Apply random action from closest
     // If obstacle return NULL
-    RRT_Node new_config = apply_rand_action(closest);
+    RRT_Node new_config = apply_rand_action(closest, map);
 
     // If not null add to tree
-    if (new_config != NULL) {
+    if (!new_config.broken) {
       rrt_tree.tree.push_back(new_config);
     }
   }

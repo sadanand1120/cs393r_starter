@@ -58,6 +58,8 @@ struct RRT_Node {
   double inbound_vel;
   Eigen::Vector2f odom_loc;
   float odom_angle;
+
+  bool broken = false;
 };
 
 // Constructor
