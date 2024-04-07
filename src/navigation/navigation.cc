@@ -377,39 +377,49 @@ void Navigation::testSamplePaths(AckermannCurvatureDriveMsg& drive_msg) {
          odom_loc_[0],
          odom_loc_[1],
          odom_angle_);
+  
+  //Create Goal Configs
+  std::vector<Vector2f> goal_configs();
+  Vector2f goal_delta(0.5,0.5)
+  goal_configs.append(nav_goal_loc_ - goal_delta)
+  goal_configs.append(nav_goal_loc_ + goal_delta)
+  // Get path
+  std::vector<Vector2f> trajectory = plan_trajectory(odom_loc, odom_angle, std::vector<Vector2f> goal_configs, map_)
 
-  Vector2f local_target(7, 0);
-  auto ackermann_sampler_ = motion_primitives::AckermannSampler(params_);
-  ackermann_sampler_.update(robot_vel_, robot_omega_, local_target, point_cloud_);
-  auto paths = ackermann_sampler_.getSamples(50);
+  for (Vector2f local_target : trajectory){
+    auto ackermann_sampler_ = motion_primitives::AckermannSampler(params_);
+    ackermann_sampler_.update(robot_vel_, robot_omega_, local_target, point_cloud_);
+    auto paths = ackermann_sampler_.getSamples(50);
 
-  auto ackermann_evaluator_ = motion_primitives::AckermannEvaluator(params_);
-  ackermann_evaluator_.update(local_target);
-  auto best_path = ackermann_evaluator_.findBestPath(paths);
-  best_path->getControlOnCurve(
-      params_.linear_limits, robot_vel_.norm(), params_.dt, drive_msg.velocity);
-  drive_msg.curvature = best_path->curvature();
+    auto ackermann_evaluator_ = motion_primitives::AckermannEvaluator(params_);
+    ackermann_evaluator_.update(local_target);
+    auto best_path = ackermann_evaluator_.findBestPath(paths);
+    best_path->getControlOnCurve(
+        params_.linear_limits, robot_vel_.norm(), params_.dt, drive_msg.velocity);
+    drive_msg.curvature = best_path->curvature();
 
-  // Visualize paths
-  // int idx = 0;
-  for (auto path : paths) {
-    visualization::DrawPathOption(path->curvature(),
-                                  path->arc_length(),
-                                  path->clearance(),
-                                  32762,
+    // Visualize paths
+    // int idx = 0;
+    for (auto path : paths) {
+      visualization::DrawPathOption(path->curvature(),
+                                    path->arc_length(),
+                                    path->clearance(),
+                                    32762,
+                                    false,
+                                    local_viz_msg_);
+      // cout << "idx: " << idx++ <<  ", Curvature: " << path->curvature() << " Arc
+      // Length: " << path->arc_length()
+      //      << " Clearance: " << path->clearance() << endl;
+    }
+
+    visualization::DrawPathOption(best_path->curvature(),
+                                  best_path->arc_length(),
+                                  best_path->clearance(),
+                                  10000,
                                   false,
                                   local_viz_msg_);
-    // cout << "idx: " << idx++ <<  ", Curvature: " << path->curvature() << " Arc
-    // Length: " << path->arc_length()
-    //      << " Clearance: " << path->clearance() << endl;
+                              
   }
-
-  visualization::DrawPathOption(best_path->curvature(),
-                                best_path->arc_length(),
-                                best_path->clearance(),
-                                10000,
-                                false,
-                                local_viz_msg_);
 
   return;
 }
