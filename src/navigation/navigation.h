@@ -44,6 +44,41 @@ using std::vector;
 using namespace math_util;
 using namespace ros_helpers;
 
+namespace RRT_Tree {
+  struct RRT_Node {
+    RRT_Node(struct RRT_Node* parent, double inbound_curvature, double inbound_vel, Eigen::Vector2f& odom_loc, float odom_angle);
+    struct RRT_Node* parent;
+    double inbound_curvature;
+    double inboud_vel;
+    Eigen::Vector2f& odom_loc;
+    float odom_angle;
+  };
+  
+  // Constructor
+  class RRT_Tree{
+    public:
+      explicit RRT_Tree(const Eigen::Vector2f& root_odom_loc, const float root_odom_angle);
+
+      struct RRT_Node find_closest(Eigen::Vector2f sampled_config);
+
+      std::vector<struct RRT_Node> make_trajectory(struct RRT_Node found_goal_config);
+
+      Vector2f sample_configs(double min_x, double min_y, double max_x, double max_y);
+
+      bool collision_free(Vector2f n, Vector2f o, const vector_map::VectorMap map);
+
+      RRT_Node apply_rand_action(RRT_Node closest);
+
+      bool in_goal_config(Vector2f new_config, std::vector<Vector2f> goal_configs);
+
+      std::vector<Vector2f> plan_trajectory(const Vector2f& odom_loc, const float odom_angle, std::vector<Vector2f> goal_configs, const vector_map::VectorMap map);
+    
+    private:
+      std::vector<RRT_Node> tree;
+      RRT_Node root;
+  };
+};
+
 namespace ros {
 class NodeHandle;
 }  // namespace ros
@@ -66,14 +101,6 @@ struct Command {
   AckermannCurvatureDriveMsg drive_msg;
 };
 
-struct RRT_Node {
-  struct RRT_Node* parent;
-  double inbound_curvature;
-  double inboud_vel;
-  const Eigen::Vector2f& odom_loc;
-  const float odom_angle;
-};
-
 struct Action_Space {
   double min_curve = -1.0;
   double max_curve = 1.0;
@@ -85,16 +112,6 @@ struct Action_Space {
   double delta_vel = 0.2;
 
   double max_time_step = 0.1;
-};
-
-class RRT_Tree {
-  public:
-    // Constructor
-    explicit RRT_Tree(const Eigen::Vector2f& root_odom_loc, const float root_odom_angle);
-
-    struct RRT_Node find_closest(Eigen::Vector2f sampled_config);
-
-    std::vector<struct RRT_Node> make_trajectory(struct RRT_Node found_goal_config);
 };
 
 class Navigation {

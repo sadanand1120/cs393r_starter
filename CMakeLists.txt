@@ -80,7 +80,8 @@ ROSBUILD_ADD_EXECUTABLE(navigation
                         src/navigation/navigation.cc
                         src/navigation/motion_primitives.cc
                         src/navigation/constant_curvature_arc.cc
-                        src/navigation/ackermann_motion_primitives.cc)
+                        src/navigation/ackermann_motion_primitives.cc
+                        src/navigation/high_level_nav_plan.cc)
 TARGET_LINK_LIBRARIES(navigation shared_library ${libs})
 
 ADD_EXECUTABLE(eigen_tutorial

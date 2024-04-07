@@ -1,35 +1,31 @@
+#include "navigation.h"
 
-
-struct RRT_Node* parent;
-  double inbound_curvature;
-  double inboud_vel;
-  const Vector2f& odom_loc;
-  const float odom_angle
-
+namespace RRT_Tree{
 RRT_Tree::RRT_Tree(const Vector2f& root_odom_loc, const float root_odom_angle){
-    RRT_Node root = {.parent = NULL, .inbound_curvature = 0.0, .inboud_vel = 0.0, .odom_loc = root_odom_loc, .odom_angle = root_odom_angle};
+    //RRT_Node root = {.parent = NULL, .inbound_curvature = 0.0, .inboud_vel = 0.0, .odom_loc = root_odom_loc, .odom_angle = root_odom_angle};
+    RRT_Node root = RRT_Node(NULL, 0.0, 0.0, root_odom_loc, root_odom_angle);
 
     std::vector<RRT_Node> tree = std::vector<RRT_Node>();
 
     tree.push_back(root);
 }
 
-RRT_Tree::find_closest(Vector2f sampled_config){
+RRT_Node RRT_Tree::find_closest(Vector2f sampled_config){
     double min_dist = -1.0;
-    RRT_Node best_node = root;
+    RRT_Node best_node = this->root;
     for(RRT_Node n : tree){
         Eigen::Vector2f dist_to_config = n.odom_loc - sampled_config;
         float dist = dist_to_config.norm();
         if(min_dist == -1.0 || dist < min_dist){
             min_dist = dist;
-            best_node = n
+            best_node = n;
         }
     }
 
     return best_node;
 }
 
-RRT_Tree::make_trajectory(struct RRT_Node found_goal_config){
+std::vector<RRT_Node> RRT_Tree::make_trajectory(struct RRT_Node found_goal_config){
     std::vector<RRT_Node> trajectory = std::vector<RRT_Node>();
 
     RRT_Node current = found_goal_config;
@@ -45,14 +41,14 @@ RRT_Tree::make_trajectory(struct RRT_Node found_goal_config){
     return trajectory;
 }
 
-Vector2f sample_configs(double min_x, double min_y, double max_x, double max_y){
+Vector2f RRT_Tree::sample_configs(double min_x, double min_y, double max_x, double max_y){
     double x = rng_.UniformRandom(min_x, max_x);
     double y = rng_.UniformRandom(min_y, max_y);
 
     return Vector2f(x, y);
 }
 
-bool collision_free(Vector2f n, Vector2f o, const auto map){
+bool RRT_Tree::collision_free(Vector2f n, Vector2f o, const vector_map::VectorMap map){
     // Just do straight line collision here with some margin
 
     // Steps
@@ -105,7 +101,7 @@ bool collision_free(Vector2f n, Vector2f o, const auto map){
     return true;
 }
 
-RRT_Node apply_rand_action(RRT_Node closest){
+RRT_Node RRT_Tree::apply_rand_action(RRT_Node closest){
     // Steps here:
     // 1. Sample random action from [min_curv, max_curv],  [min_vel, max_vel], [0, max_time_step]
     // 2. Apply action over time step to current node
@@ -154,7 +150,7 @@ RRT_Node apply_rand_action(RRT_Node closest){
     }
 }
 
-bool in_goal_config(Vector2f new_config, std::vector<Vector2f> goal_configs){
+bool RRT_Tree::in_goal_config(Vector2f new_config, std::vector<Vector2f> goal_configs){
     if (new_config == NULL) { return false; }
     result = true;
 
@@ -164,7 +160,7 @@ bool in_goal_config(Vector2f new_config, std::vector<Vector2f> goal_configs){
     return result;
 }
 
-std::vector<Vector2f> plan_trajectory(const Vector2f& odom_loc, const float odom_angle, std::vector<Vector2f> goal_configs, const auto map) {
+std::vector<Vector2f> RRT_Tree::plan_trajectory(const Vector2f& odom_loc, const float odom_angle, std::vector<Vector2f> goal_configs, const vector_map::VectorMap map) {
     // Calculate a trajectory for the robot using RRT
 
     // Steps:
@@ -235,4 +231,5 @@ std::vector<Vector2f> plan_trajectory(const Vector2f& odom_loc, const float odom
     }
 
     return rrt_tree.make_trajectory(new_config)
+}
 }
