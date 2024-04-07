@@ -131,6 +131,7 @@ RRT_Node RRT_Tree::apply_rand_action(RRT_Node closest){
       new_pose.x() += new_vel * new_time;  // TODO: What is the actual duration here?
     } else {
       double cur_angular_change = new_curve * new_vel * new_time;  // TODO: What is the actual duration here?
+      angular_change += cur_angular_change;                                  // TODO: What is the actual duration here?
 
       // Center of turning
       Eigen::Vector2f center_of_turning = Vector2f(0, 1 / new_curve);
