@@ -345,13 +345,15 @@ void Navigation::testSamplePaths(AckermannCurvatureDriveMsg& drive_msg) {
   printf("odom loc x: %0.3f y: %0.3f theta:%0.3f\n", odom_loc_[0], odom_loc_[1], odom_angle_);
 
   // Create Goal Configs
-  std::vector<Vector2f> goal_configs;
-  Vector2f goal_delta(0.5, 0.5);
-  goal_configs.push_back(nav_goal_loc_ - goal_delta);
-  goal_configs.push_back(nav_goal_loc_ + goal_delta);
+  Vector2f goal(6.85,12.07);
+  //Vector2f goal(8.0, 12.0);
+  //Vector2f goal(9.0, 9.0);
+  //Vector2f goal(-1.5, 5.0);
+  double goal_radius = 0.25;
+
   // Get path
   rrt_tree::RRT_Tree tree = rrt_tree::RRT_Tree(robot_loc_, robot_angle_);
-  std::vector<rrt_tree::RRT_Node> trajectory = tree.plan_trajectory(robot_loc_, robot_angle_, goal_configs, map_);
+  std::vector<rrt_tree::RRT_Node> trajectory = tree.plan_trajectory(robot_loc_, robot_angle_, goal, goal_radius, map_);
 
   for (rrt_tree::RRT_Node local_target_node : trajectory) {
     Vector2f local_target = local_target_node.odom_loc;

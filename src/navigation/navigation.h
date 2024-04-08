@@ -77,10 +77,10 @@ class RRT_Tree {
 
   RRT_Node apply_rand_action(RRT_Node closest, const vector_map::VectorMap map);
 
-  bool in_goal_config(Vector2f new_config, std::vector<Vector2f> goal_configs);
+  bool in_goal_config(Vector2f new_config, Vector2f goal, double goal_radius);
 
   std::vector<RRT_Node> plan_trajectory(const Vector2f& odom_loc, const float odom_angle,
-                                        std::vector<Vector2f> goal_configs, const vector_map::VectorMap map);
+                                        Vector2f goal, double goal_radius, const vector_map::VectorMap map);
 
  private:
   std::vector<RRT_Node> tree;
@@ -115,13 +115,14 @@ struct Action_Space {
   double min_curve = -1.0;
   double max_curve = 1.0;
 
-  double delta_curve = 0.2;
+  double delta_curve = 0.5;
 
   double min_vel = -1.0;
   double max_vel = 1.0;
-  double delta_vel = 0.2;
+  double delta_vel = 0.1;
 
-  double max_time_step = 0.1;
+  double min_time_step = 0.0005;
+  double max_time_step = 0.5;
 };
 
 class Navigation {
