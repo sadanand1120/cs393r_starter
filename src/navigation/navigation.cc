@@ -50,6 +50,389 @@ AckermannCurvatureDriveMsg drive_msg_;
 const float kEpsilon = 1e-5;
 }  // namespace
 
+namespace rrt_tree {
+RRT_Tree::RRT_Tree(const Vector2f& root_odom_loc, const float root_odom_angle) {
+  root.parent = NULL;
+  root.inbound_curvature = 0.0;
+  root.inbound_vel = 0.0;
+  root.odom_loc = root_odom_loc;
+  root.odom_angle = root_odom_angle;
+
+  tree = std::vector<RRT_Node*>();
+
+  tree.push_back(&root);
+
+  printf("Address of Root is: %p\n", &root);
+}
+
+RRT_Node* RRT_Tree::find_closest(Vector2f sampled_config) {
+  printf("Executing Find Closest:\n");
+  double min_dist = -1.0;
+  RRT_Node* best_node = &root;
+  printf("Best Node initially set to %p\n", best_node);
+  for (RRT_Node* n : tree) {
+    printf("loop Node in tree address is %p\n", &n);
+    Eigen::Vector2f dist_to_config = n->odom_loc - sampled_config;
+    float dist = dist_to_config.norm();
+    if (min_dist == -1.0 || dist < min_dist) {
+      min_dist = dist;
+      best_node = n;
+      printf("Best Node Set to address: %p\n", best_node);
+    }
+  }
+
+  return best_node;
+}
+
+std::list<RRT_Node*> RRT_Tree::make_trajectory(RRT_Node* found_goal_config) {
+  std::list<RRT_Node*> trajectory = std::list<RRT_Node*>();
+
+  printf("Inside Make Trajectory\n");
+  printf("Total Nodes in Tree: %ld\n", tree.size());
+  for (RRT_Node* r : tree) {
+    printf("Node Address: %p\n", r);
+    printf("Node Parent: %p\n", r->parent);
+    printf("Node Curvature: %f\n", r->inbound_curvature);
+    printf("Node Velocity: %f\n", r->inbound_vel);
+    printf("Node Odom Location: %f %f\n", r->odom_loc.x(), r->odom_loc.y());
+    printf("Node Odom Angle: %f\n", r->odom_angle);
+  }
+
+  RRT_Node* current = found_goal_config;
+  int total_pushed = 0;
+  while (current->parent != NULL) {
+    trajectory.push_front(current);
+    total_pushed += 1;
+    //printf("Total Pushed: %d\n", total_pushed);
+
+    current = current->parent;
+  }
+
+  trajectory.push_front(current);
+
+  //std::reverse(trajectory.begin(), trajectory.end());
+
+  return trajectory;
+}
+
+Vector2f RRT_Tree::sample_configs(double min_x, double min_y, double max_x, double max_y) {
+  double x = rng_.UniformRandom(min_x, max_x);
+  double y = rng_.UniformRandom(min_y, max_y);
+
+  return Vector2f(x, y);
+}
+
+bool RRT_Tree::collision_free(Vector2f n, Vector2f o, const vector_map::VectorMap map) {
+  // Just do straight line collision here with some margin
+
+  // Steps
+  // 1. Create set of points around new pose and closest pose based on margin
+  // 2. Create line segments between corresponding points
+  // 3. Check for intersection with the map
+
+  /*double margin = 0.05;
+
+  Vector2f n1 = Vector2f(n.x(), n.y() + margin);
+  Vector2f n2 = Vector2f(n.x(), n.y() - margin);
+  Vector2f n3 = Vector2f(n.x() + margin, n.y() + margin);
+  Vector2f n4 = Vector2f(n.x() + margin, n.y() - margin);
+  Vector2f n5 = Vector2f(n.x() - margin, n.y() + margin);
+  Vector2f n6 = Vector2f(n.x() - margin, n.y() - margin);
+  Vector2f n7 = Vector2f(n.x() + margin, n.y());
+  Vector2f n8 = Vector2f(n.x() - margin, n.y());
+
+  Vector2f o1 = Vector2f(o.x(), o.y() + margin);
+  Vector2f o2 = Vector2f(o.x(), o.y() - margin);
+  Vector2f o3 = Vector2f(o.x() + margin, o.y() + margin);
+  Vector2f o4 = Vector2f(o.x() + margin, o.y() - margin);
+  Vector2f o5 = Vector2f(o.x() - margin, o.y() + margin);
+  Vector2f o6 = Vector2f(o.x() - margin, o.y() - margin);
+  Vector2f o7 = Vector2f(o.x() + margin, o.y());
+  Vector2f o8 = Vector2f(o.x() - margin, o.y());*/
+
+  line2f l0 = line2f(o, n);/*
+  line2f l1 = line2f(o1, n1);
+  line2f l2 = line2f(o2, n2);
+  line2f l3 = line2f(o3, n3);
+  line2f l4 = line2f(o4, n4);
+  line2f l5 = line2f(o5, n5);
+  line2f l6 = line2f(o6, n6);
+  line2f l7 = line2f(o7, n7);
+  line2f l8 = line2f(o8, n8);*/
+
+  for (size_t j = 0; j < map.lines.size(); ++j) {
+    const line2f line = map.lines[j];
+    if (line.Intersects(l0)) {
+      return false;
+    }/*
+    if (line.Intersects(l1)) {
+      return false;
+    }
+    if (line.Intersects(l2)) {
+      return false;
+    }
+    if (line.Intersects(l3)) {
+      return false;
+    }
+    if (line.Intersects(l4)) {
+      return false;
+    }
+    if (line.Intersects(l5)) {
+      return false;
+    }
+    if (line.Intersects(l6)) {
+      return false;
+    }
+    if (line.Intersects(l7)) {
+      return false;
+    }
+    if (line.Intersects(l8)) {
+      return false;
+    }*/
+  }
+
+  return true;
+}
+
+RRT_Node* RRT_Tree::apply_rand_action(RRT_Node* closest, const vector_map::VectorMap map) {
+  // Steps here:
+  // 1. Sample random action from [min_curv, max_curv],  [min_vel, max_vel], [0, max_time_step]
+  // 2. Apply action over time step to current node
+  // 3. Check if obstacle free
+
+  // Sample new action
+  navigation::Action_Space aspace;
+  //double cur_min_curve = max(aspace.min_curve, closest->inbound_curvature - aspace.delta_curve);
+  //double cur_max_curve = min(aspace.max_curve, closest->inbound_curvature + aspace.delta_curve);
+  //double cur_min_vel = max(aspace.min_vel, closest->inbound_vel - aspace.delta_vel);
+  //double cur_max_vel = min(aspace.max_vel, closest->inbound_vel + aspace.delta_vel);
+
+  double new_vel = rng_.UniformRandom(aspace.min_vel, aspace.max_vel);
+  double new_curve = rng_.UniformRandom(aspace.min_curve, aspace.max_curve);
+  double new_time = aspace.max_time_step;
+
+  // Apply Action to closest
+  Vector2f new_pose = Vector2f(0.0, 0.0);
+  double cur_angular_change = 0.0;
+  if (new_curve == 0) {
+    // Only need to update x pose in base link frame
+    new_pose.x() += new_vel * new_time;  // TODO: What is the actual duration here?
+  } else {
+    cur_angular_change = new_curve * new_vel * new_time;  // TODO: What is the actual duration here?
+
+    // Center of turning
+    Eigen::Vector2f center_of_turning = Vector2f(0, 1 / new_curve);
+
+    // New pose in base link frame
+    Eigen::Rotation2Df r(cur_angular_change);
+    new_pose = r * (-1 * center_of_turning) + center_of_turning;
+  }
+
+  Eigen::Rotation2Df r(closest->odom_angle);
+
+  new_pose = r * new_pose;
+  Vector2f world_frame_new_pose = new_pose + closest->odom_loc;
+  double world_frame_new_angle =
+      cur_angular_change + closest->odom_angle;
+
+  // Check collision
+  if (collision_free(world_frame_new_pose, closest->odom_loc, map)) {
+        RRT_Node* new_node = new RRT_Node;
+        new_node->parent = closest;
+        new_node->inbound_curvature = new_curve;
+        new_node->inbound_vel = new_vel;
+        new_node->odom_loc = world_frame_new_pose;
+        new_node->odom_angle = world_frame_new_angle;
+
+        return new_node;
+  }
+  else {
+    RRT_Node* new_node = new RRT_Node;
+    new_node->parent = closest;
+    new_node->inbound_curvature = new_curve;
+    new_node->inbound_vel = new_vel;
+    new_node->odom_loc = world_frame_new_pose;
+    new_node->odom_angle = world_frame_new_angle;
+    new_node->broken = true;
+    return new_node;
+  }
+}
+
+bool RRT_Tree::in_goal_config(Vector2f new_config, Vector2f goal, double goal_radius) {
+  if ((new_config - goal).norm() < goal_radius) {
+    return true;
+  }
+
+  return false;
+}
+
+std::list<RRT_Node*> RRT_Tree::plan_trajectory(const Vector2f& odom_loc, const float odom_angle, Vector2f goal, double goal_radius, const vector_map::VectorMap map) {
+  // Calculate a trajectory for the robot using RRT
+
+  // Steps:
+  // 1. Create tree with current location as the root
+  // 2. Repeat below until goal config reached
+  //      1. Sample locations in the map
+  //      2. Find the nearest node in the tree
+  //      3. Select action to drive towards node (can be randomly sampled here it turns out)
+  //      4. If config produced by new action is valid (collision free) add it to the tree
+
+  printf("Planning a trajectory...\n");
+
+  // Get max/min x/y from map
+  double min_x = -1.0;
+  double min_y = -1.0;
+  double max_x = -1.0;
+  double max_y = -1.0;
+  for (const auto& map_line : map.lines) {
+    double line_x1 = map_line.p0[0];
+    double line_x2 = map_line.p1[0];
+
+    double line_y1 = map_line.p0[1];
+    double line_y2 = map_line.p1[1];
+
+    if (min_x == -1.0 || line_x1 < min_x) {
+      min_x = line_x1;
+    }
+    if (min_x == -1.0 || line_x2 < min_x) {
+      min_x = line_x2;
+    }
+    if (max_x == -1.0 || line_x1 > max_x) {
+      max_x = line_x1;
+    }
+    if (max_x == -1.0 || line_x2 > max_x) {
+      max_x = line_x2;
+    }
+
+    if (min_y == -1.0 || line_y1 < min_y) {
+      min_y = line_y1;
+    }
+    if (min_y == -1.0 || line_y2 < min_y) {
+      min_y = line_y2;
+    }
+    if (max_y == -1.0 || line_y1 > max_y) {
+      max_y = line_y1;
+    }
+    if (max_y == -1.0 || line_y2 > max_y) {
+      max_y = line_y2;
+    }
+  }
+
+  // Initialize tree
+  printf("Initializing a tree\n");
+  RRT_Tree rrt_tree = RRT_Tree(odom_loc, odom_angle);
+  printf("rrt_tree.root address is %p\n", &(rrt_tree.root));
+  printf("rrt_tree.tree[0] address is %p\n", rrt_tree.tree[0]);
+
+  // Sample new configs
+  printf("Sampling new configs\n");
+  Vector2f sampled_config = sample_configs(min_x, min_y, max_x, max_y);
+  visualization::DrawCross(sampled_config, 0.2, 0x020202, global_viz_msg_);
+
+  // Get closest rrt node
+  printf("Finding closest rrt node\n");
+  RRT_Node* closest = rrt_tree.find_closest(sampled_config);
+  visualization::DrawCross(closest->odom_loc, 0.2, 0x0000FF, global_viz_msg_);
+
+  // Apply random action from closest
+  // If obstacle return NULL
+  printf("Sampling a random action from closest\n");
+  RRT_Node* new_config = apply_rand_action(closest, map);
+    visualization::DrawCross(new_config->odom_loc, 0.2, 0x00FF00, global_viz_msg_);
+
+  // If not null add to tree
+  if (!new_config->broken) {
+    rrt_tree.tree.push_back(new_config);
+  }
+
+  // Repeat until goald found
+  printf("Trying to reach the goal\n");
+
+  double min_dist_to_goal = 100.0;
+  double max_dist_from_root = 0.0;
+  int max_samples = 500;
+  int total_samples = 0;
+
+  // Repeat until goal found
+  while (!in_goal_config(new_config->odom_loc, goal, goal_radius) && total_samples < max_samples) {
+    // Sample new configs 
+    //With some probability epsilon, sample the goal
+    Vector2f sampled_config;
+    if (rng_.UniformRandom(0, 1) < 0.25){
+        sampled_config = sample_configs(goal.x()-goal_radius, goal.y() - goal_radius, goal.x() + goal_radius, goal.y() + goal_radius);
+    } else {
+        sampled_config = sample_configs(min_x, min_y, max_x, max_y);
+    }
+    visualization::DrawCross(sampled_config, 0.2, 0x020202, global_viz_msg_);
+
+    // Get closest rrt node
+    RRT_Node* closest = rrt_tree.find_closest(sampled_config);
+    //cout << "Closest Loc: " << closest.odom_loc << endl;
+    visualization::DrawCross(closest->odom_loc, 0.2, 0x0000FF, global_viz_msg_);
+
+    // Apply random action from closest
+    // If obstacle return NULL
+    new_config = apply_rand_action(closest, map);
+    visualization::DrawCross(new_config->odom_loc, 0.2, 0x00FF00, global_viz_msg_);
+
+    // If not null add to tree
+    if (!new_config->broken) {
+      rrt_tree.tree.push_back(new_config);
+
+      if ((new_config->odom_loc - goal).norm() < min_dist_to_goal){
+        min_dist_to_goal = (new_config->odom_loc - goal).norm();
+      }
+
+      if ((new_config->odom_loc - root.odom_loc).norm() > max_dist_from_root){
+        max_dist_from_root = (new_config->odom_loc - root.odom_loc).norm();
+      }
+
+      cout << "Added Config: " << endl << new_config->odom_loc << endl << "========" << endl;
+      cout << "Min distance to goal: " << min_dist_to_goal << endl;
+      cout << "Max distance from root: " << max_dist_from_root << endl; 
+    }
+    total_samples += 1;
+  }
+
+/*
+  while (!in_goal_config(new_config->odom_loc, goal_configs) && total_samples < max_samples) {
+    // Sample new configs
+    Vector2f sampled_config = sample_configs(min_x, min_y, max_x, max_y);
+
+    // Get closest rrt node
+    RRT_Node* closest = rrt_tree.find_closest(sampled_config);
+    visualization::DrawCross(closest->odom_loc, 1, 32762, local_viz_msg_);
+
+    // Apply random action from closest
+    // If obstacle return NULL
+    RRT_Node* new_config = apply_rand_action(closest, map);
+    visualization::DrawCross(new_config->odom_loc, 1, 3272, local_viz_msg_);
+
+    // If not null add to tree
+    if (!new_config->broken) {
+      rrt_tree.tree.push_back(new_config);
+    }
+    total_samples += 1;
+  }*/
+  printf("Finished Looping\n");
+
+  return rrt_tree.make_trajectory(new_config);
+}
+}  // namespace rrt_tree
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 namespace navigation {
 
 string GetMapFileFromName(const string& map) {
@@ -284,9 +667,9 @@ void Navigation::Run() {
     if (FLAGS_Test1DTOC) {
       test1DTOC();
     }
-    if (FLAGS_TestSamplePaths) {
+    //if (FLAGS_TestSamplePaths) {
       testSamplePaths(drive_msg_);
-    }
+    //}
 
     drive_msg_.header.stamp = ros::Time::now();
     drive_pub_.publish(drive_msg_);
@@ -341,22 +724,45 @@ void Navigation::test1DTOC() {
 
 void Navigation::testSamplePaths(AckermannCurvatureDriveMsg& drive_msg) {
   // Sample paths
-
+  printf("Inside sample paths\n");
   printf("odom loc x: %0.3f y: %0.3f theta:%0.3f\n", odom_loc_[0], odom_loc_[1], odom_angle_);
 
   // Create Goal Configs
-  Vector2f goal(6.85,12.07);
+  //Vector2f goal(6.85,12.07);
   //Vector2f goal(8.0, 12.0);
   //Vector2f goal(9.0, 9.0);
   //Vector2f goal(-1.5, 5.0);
+  Vector2f goal(2.0, 7.0);
+  //Vector2f goal(-4.0, 6.0);
   double goal_radius = 0.25;
+  visualization::DrawPoint(goal, 0xFF0000, global_viz_msg_);
 
+
+
+  //Navigation::SetNavGoal(Vector2f(-4.450, 6.680), 0.0);
+  //std::vector<Vector2f> goal_configs;
+  //Vector2f goal_delta(0.5, 0.5);
+  //goal_configs.push_back(nav_goal_loc_ - goal_delta);
+  //goal_configs.push_back(nav_goal_loc_ + goal_delta);
   // Get path
+  printf("Makaing a tree\n");
   rrt_tree::RRT_Tree tree = rrt_tree::RRT_Tree(robot_loc_, robot_angle_);
-  std::vector<rrt_tree::RRT_Node> trajectory = tree.plan_trajectory(robot_loc_, robot_angle_, goal, goal_radius, map_);
+  std::list<rrt_tree::RRT_Node*> trajectory = tree.plan_trajectory(robot_loc_, robot_angle_, goal, goal_radius, map_);
+  //std::list<rrt_tree::RRT_Node*> trajectory = tree.plan_trajectory(robot_loc_, robot_angle_, goal_configs, map_);
+  printf("Planned a trajectory\n");
+  for (rrt_tree::RRT_Node* node_ptr : trajectory) {
+    printf("Address: %p\n", node_ptr);
+    printf("  Parent: %p\n", node_ptr->parent);
+  }
 
-  for (rrt_tree::RRT_Node local_target_node : trajectory) {
-    Vector2f local_target = local_target_node.odom_loc;
+
+  for (rrt_tree::RRT_Node* global_target_node : trajectory) {
+    // Need to transform from global target to local target
+    Vector2f local_target = Eigen::Rotation2Df(-robot_angle_)*global_target_node->odom_loc + robot_loc_;
+    visualization::DrawCross(local_target, 0.5, 0xFF00FF, local_viz_msg_);
+
+
+    //Vector2f local_target = global_target_node->odom_loc;
     auto ackermann_sampler_ = motion_primitives::AckermannSampler(params_);
     ackermann_sampler_.update(robot_vel_, robot_omega_, local_target, point_cloud_);
     auto paths = ackermann_sampler_.getSamples(50);
@@ -379,6 +785,7 @@ void Navigation::testSamplePaths(AckermannCurvatureDriveMsg& drive_msg) {
 
     visualization::DrawPathOption(best_path->curvature(), best_path->arc_length(), best_path->clearance(), 10000, false,
                                   local_viz_msg_);
+  //break;
   }
 
   return;

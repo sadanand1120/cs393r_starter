@@ -1,6 +1,7 @@
 #include "navigation.h"
+#include "visualization/visualization.h"
 
-namespace rrt_tree {
+namespace rrt {
 RRT_Tree::RRT_Tree(const Vector2f& root_odom_loc, const float root_odom_angle) {
   root.parent = NULL;
   root.inbound_curvature = 0.0;
@@ -203,8 +204,12 @@ bool RRT_Tree::in_goal_config(Vector2f new_config, Vector2f goal, double goal_ra
   return false;
 }
 
+<<<<<<< Updated upstream
 std::vector<RRT_Node> RRT_Tree::plan_trajectory(const Vector2f& odom_loc, const float odom_angle,
                                                 Vector2f goal, double goal_radius, const vector_map::VectorMap map) {
+=======
+std::vector<RRT_Node> RRT_Tree::plan_trajectory(const Vector2f& odom_loc, const float odom_angle, std::vector<Vector2f> goal_configs, const vector_map::VectorMap map, VisualizationMsg local_viz_msg_) {
+>>>>>>> Stashed changes
   // Calculate a trajectory for the robot using RRT
 
   // Steps:
@@ -214,6 +219,8 @@ std::vector<RRT_Node> RRT_Tree::plan_trajectory(const Vector2f& odom_loc, const 
   //      2. Find the nearest node in the tree
   //      3. Select action to drive towards node (can be randomly sampled here it turns out)
   //      4. If config produced by new action is valid (collision free) add it to the tree
+
+  printf("Planning a trajectory...\n");
 
   // Get max/min x/y from map
   double min_x = -1.0;
@@ -255,17 +262,22 @@ std::vector<RRT_Node> RRT_Tree::plan_trajectory(const Vector2f& odom_loc, const 
   }
 
   // Initialize tree
+  printf("Initializing a tree\n");
   RRT_Tree rrt_tree = RRT_Tree(odom_loc, odom_angle);
 
   // Sample new configs
+  printf("Sampling new configs\n");
   Vector2f sampled_config = sample_configs(min_x, min_y, max_x, max_y);
 
   // Get closest rrt node
+  printf("Finding closest rrt node\n");
   RRT_Node closest = rrt_tree.find_closest(sampled_config);
+  visualization::DrawCross(closest.odom_loc, 1, 32762, local_viz_msg_);
 
 
   // Apply random action from closest
   // If obstacle return NULL
+  printf("Sampling a random action from closest\n");
   RRT_Node new_config = apply_rand_action(closest, map);
 
   // If not null add to tree
@@ -273,6 +285,7 @@ std::vector<RRT_Node> RRT_Tree::plan_trajectory(const Vector2f& odom_loc, const 
     rrt_tree.tree.push_back(new_config);
   }
 
+<<<<<<< Updated upstream
   double min_dist_to_goal = 100.0;
   double max_dist_from_root = 0.0;
 
@@ -290,6 +303,17 @@ std::vector<RRT_Node> RRT_Tree::plan_trajectory(const Vector2f& odom_loc, const 
     // Get closest rrt node
     RRT_Node closest = rrt_tree.find_closest(sampled_config);
     //cout << "Closest Loc: " << closest.odom_loc << endl;
+=======
+  // Repeat until goald found
+  printf("Trying to reach the goal\n");
+  while (!in_goal_config(new_config.odom_loc, goal_configs)) {
+    // Sample new configs
+    Vector2f sampled_config = sample_configs(min_x, min_y, max_x, max_y);
+
+    // Get closest rrt node
+    RRT_Node closest = rrt_tree.find_closest(sampled_config);
+    visualization::DrawCross(closest.odom_loc, 1, 32762, local_viz_msg_);
+>>>>>>> Stashed changes
 
     // Apply random action from closest
     // If obstacle return NULL

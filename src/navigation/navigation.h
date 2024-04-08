@@ -67,23 +67,23 @@ class RRT_Tree {
  public:
   explicit RRT_Tree(const Eigen::Vector2f& root_odom_loc, const float root_odom_angle);
 
-  struct RRT_Node find_closest(Eigen::Vector2f sampled_config);
+  struct RRT_Node* find_closest(Eigen::Vector2f sampled_config);
 
-  std::vector<struct RRT_Node> make_trajectory(struct RRT_Node found_goal_config);
+  std::list<struct RRT_Node*> make_trajectory(struct RRT_Node* found_goal_config);
 
   Vector2f sample_configs(double min_x, double min_y, double max_x, double max_y);
 
   bool collision_free(Vector2f n, Vector2f o, const vector_map::VectorMap map);
 
-  RRT_Node apply_rand_action(RRT_Node closest, const vector_map::VectorMap map);
+  RRT_Node* apply_rand_action(RRT_Node* closest, const vector_map::VectorMap map);
 
   bool in_goal_config(Vector2f new_config, Vector2f goal, double goal_radius);
 
-  std::vector<RRT_Node> plan_trajectory(const Vector2f& odom_loc, const float odom_angle,
+  std::list<RRT_Node*> plan_trajectory(const Vector2f& odom_loc, const float odom_angle,
                                         Vector2f goal, double goal_radius, const vector_map::VectorMap map);
 
  private:
-  std::vector<RRT_Node> tree;
+  std::vector<RRT_Node*> tree;
   RRT_Node root;
   util_random::Random rng_;
 };
