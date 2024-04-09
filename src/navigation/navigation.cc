@@ -371,6 +371,9 @@ void Navigation::Run() {
       testSamplePaths(drive_msg_);
     }
 
+
+    visualization::DrawCross(goal_loc_, 0.05, 0x990000, global_viz_msg_);
+
     // Check if goal reached
     float d = (goal_loc_ - robot_loc_).norm();
     if (d < 0.25) {
@@ -390,7 +393,7 @@ void Navigation::Run() {
       std::vector<FloatLocation> path_coords;
       for (const auto& loc : path) {
         path_coords.push_back(untransformCell(loc.x, loc.y));
-        visualization::DrawCross(path_coords.back().loc, 0.05, 0x009999, global_viz_msg_);
+        visualization::DrawCross(path_coords.back().loc, 0.1, 0x0000FF, global_viz_msg_);
       }
 
       // Get carrot
@@ -404,6 +407,7 @@ void Navigation::Run() {
       } else {
         // Run local navigation
         Vector2f cur_local_target_ = Rotation2Df(-robot_angle_) * (carrot - robot_loc_);
+        visualization::DrawCross(cur_local_target_, 0.15, 0xFF00FF, local_viz_msg_);
         RunLocalNavigation(drive_msg_, cur_local_target_);
       }
     }
