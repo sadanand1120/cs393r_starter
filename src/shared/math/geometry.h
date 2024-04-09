@@ -222,6 +222,25 @@ bool CheckLineLineCollision(
   return false;
 }
 
+// Closest distance of a point from a line segment.
+template <typename T>
+T DistanceFromLineSegment(
+    const Eigen::Matrix<T, 2, 1>& point,
+    const Eigen::Matrix<T, 2, 1>& vertex_a,
+    const Eigen::Matrix<T, 2, 1>& vertex_b) {
+  Eigen::Matrix<T, 2, 1> dir = (vertex_b - vertex_a);
+  const T l = dir.norm();
+  dir = dir / l;
+  const T c = dir.dot(point - vertex_a);
+  if (c < T(0)) {
+    return (point - vertex_a).norm();
+  } else if (c > l) {
+    return (point - vertex_b).norm();
+  }
+  const Eigen::Matrix<T, 2, 1> n = Perp(dir);
+  return fabs(n.dot(point - vertex_a));
+}
+
 // Returns the point of intersection between the lines given by (a1-a0) and
 // (b1-b0).
 template <typename T>
@@ -399,6 +418,56 @@ bool RayIntersect(const Eigen::Matrix<T, 2, 1>& ray_source,
   }
 
   return intersects;
+}
+
+// Compute point(s) of intersection between the circle with center c0 and radius
+// r, and the line segment p0 : p1. The return value indicates the number of
+// valid points of intersection found: 0, 1, or 2. The points of intersection
+// are returned via r0 and r1.
+template <typename T>
+int CircleLineIntersection(const Eigen::Matrix<T, 2, 1>& c0,
+                           const T& r,
+                           const Eigen::Matrix<T, 2, 1>& p0,
+                           const Eigen::Matrix<T, 2, 1>& p1,
+                           Eigen::Matrix<T, 2, 1>* r0,
+                           Eigen::Matrix<T, 2, 1>* r1) {
+  Eigen::Matrix<T, 2, 1> d = p1 - p0;
+  const T l = d.norm();
+  d = d / l;
+  const Eigen::Matrix<T, 2, 1> delta = p0 - c0;  
+  const T b = T(2) * delta.dot(d);
+  const T c = delta.squaredNorm() - math_util::Sq(r);
+  T gamma_0;
+  T gamma_1;
+  const int num_solutions = 
+      math_util::SolveQuadratic(T(1), b, c, &gamma_0, &gamma_1);
+  if (num_solutions == 0) return 0;
+  bool s0_valid =  (gamma_0 >= T(0) && gamma_0 <= l);
+  bool s1_valid = (num_solutions > 1 && gamma_1 >= T(0) && gamma_1 <= l);
+  if (!s0_valid && s1_valid) {
+    s0_valid = true;
+    gamma_0 = gamma_1;
+    s1_valid = false;
+  }
+  if (s0_valid) {
+    *r0 = p0 + gamma_0 * d;
+  }
+  if (s1_valid) {
+    *r1 = p0 + gamma_1 * d;
+  }
+  return static_cast<int>(s0_valid) + static_cast<int>(s1_valid);
+}
+// Check if the circle with center c0, and radius r collides with the line
+// segment p0 : p1, and return true if a collision is found.
+template <typename T>
+bool CheckCircleLineCollision(const Eigen::Matrix<T, 2, 1>& c0,
+                              const T& r,
+                              const Eigen::Matrix<T, 2, 1>& p0,
+                              const Eigen::Matrix<T, 2, 1>& p1) {
+  if ((c0 - p0).squaredNorm() <= math_util::Sq(r)) return true;
+  if ((c0 - p1).squaredNorm() <= math_util::Sq(r)) return true;
+  if (DistanceFromLineSegment(c0, p0, p1) <= r) return true;
+  return false;
 }
 
 // Determines whether a ray intersects with a given circle

@@ -19,32 +19,29 @@
 */
 //========================================================================
 
-#include "gflags/gflags.h"
-#include "eigen3/Eigen/Dense"
-#include "eigen3/Eigen/Geometry"
+#include "navigation.h"
+#include "jps.hpp"
+#include "grid.hpp"
+#include "tools.hpp"
+
 #include "amrl_msgs/AckermannCurvatureDriveMsg.h"
 #include "amrl_msgs/Pose2Df.h"
 #include "amrl_msgs/VisualizationMsg.h"
+#include "eigen3/Eigen/Dense"
+#include "eigen3/Eigen/Geometry"
+#include "gflags/gflags.h"
 #include "glog/logging.h"
-#include "ros/ros.h"
+#include "motion_primitives.h"
 #include "ros/package.h"
+#include "ros/ros.h"
 #include "shared/math/math_util.h"
-#include "shared/math/geometry.h"
-#include "shared/util/timer.h"
 #include "shared/ros/ros_helpers.h"
-#include "navigation.h"
+#include "shared/util/timer.h"
 #include "visualization/visualization.h"
-#include <deque>
 
-using amrl_msgs::AckermannCurvatureDriveMsg;
-using amrl_msgs::VisualizationMsg;
-using Eigen::Vector2f;
-using std::sqrt;
-using std::string;
-using std::vector;
-
-using namespace math_util;
-using namespace ros_helpers;
+DEFINE_bool(simulation, true, "Run in simulation mode");
+DEFINE_bool(Test1DTOC, false, "Run 1D line time-optimal controller test");
+DEFINE_bool(TestSamplePaths, false, "Run sample paths test");
 
 namespace {
 ros::Publisher drive_pub_;
@@ -54,17 +51,6 @@ VisualizationMsg global_viz_msg_;
 AckermannCurvatureDriveMsg drive_msg_;
 // Epsilon value for handling limited numerical precision.
 const float kEpsilon = 1e-5;
-
-/* ********** *
- * PARAMETERS *
- * ********** *
- */
-
-const float max_accel = 4;
-const float max_vel = 1.0;
-double time_interval = 0.1;      // TODO: Get an actual value for this?
-double actuation_latency = 0.2;  // TODO: get an actual value for this
-
 }  // namespace
 
 namespace navigation {
@@ -74,631 +60,290 @@ string GetMapFileFromName(const string& map) {
   return maps_dir_ + "/" + map + "/" + map + ".vectormap.txt";
 }
 
-Navigation::Navigation(const string& map_name, ros::NodeHandle* n)
-    : odom_initialized_(false),
+Navigation::Navigation(const string& map_name, NavigationParams& params, ros::NodeHandle* n)
+    : params_(params),
+      autonomy_enabled_(false),
+      odom_initialized_(false),
       localization_initialized_(false),
-      robot_loc_(0, 0),
-      robot_angle_(0),
       robot_vel_(0, 0),
       robot_omega_(0),
+      robot_loc_(0, 0),
+      robot_angle_(0),
+      goal_loc_(0, 0),
+      goal_angle_(0),
       nav_complete_(true),
       nav_goal_loc_(0, 0),
       nav_goal_angle_(0) {
   map_.Load(GetMapFileFromName(map_name));
   drive_pub_ = n->advertise<AckermannCurvatureDriveMsg>("ackermann_curvature_drive", 1);
-  viz_pub_ = n->advertise<VisualizationMsg>("visualization", 1);
+  viz_pub_ = n->advertise<VisualizationMsg>("visualization", 10);
   local_viz_msg_ = visualization::NewVisualizationMessage("base_link", "navigation_local");
   global_viz_msg_ = visualization::NewVisualizationMessage("map", "navigation_global");
   InitRosHeader("base_link", &drive_msg_.header);
 
-  controls = std::deque<Controls>();
+  assert(params_.obstacle_margin < (1.0f / params_.max_curvature - params_.robot_width) / 2);
+
+  // Load the walled grid
+  auto walls = read_walls_from_csv("GDC3_walls.csv");
+  walled_grid_ = Grid(200, 200, walls);
+
+  // set goal
+  goal_loc_ = Vector2f(33, 17);
 }
 
-double Navigation::MinimumDistanceToObstacle(const vector<Vector2f>& cloud, double curvature) {
-  // Given an arc (expressed by the curvature parameter, and the car physical dimensions, compute the distance
-  // that the car can travel from its current location to the obstacle.
-  float actual_car_length = 0.535;  // [meters]
-  float length_margin = 0.2;
-  float car_length = actual_car_length + length_margin;
-  float actual_car_width = 0.281;  // [meters]
-  float width_margin = 0.2;
-  float car_width = actual_car_width + width_margin;
-  // float wheel_base = 0.324; // [meters]
-  // float max_curvature = 1.0;
-  float actual_offset = 0.09;  // meters <-- need to measure this
-  float offset = actual_offset + (length_margin / 2);
+void Navigation::SetNavGoal(const Vector2f& loc, float angle) {
+  nav_goal_loc_ = loc;
+  nav_goal_angle_ = angle;
+}
 
-  // We work in the baselink frame of reference. In the base link frame of reference, the center of turning is
-  // located at (0, 1/c)
-  // TODO: NOTE: Need to take care of case where curvature is 0.0
+void Navigation::SetAutonomy(bool autonomy_enabled) {
+  autonomy_enabled_ = autonomy_enabled;
 
-  if (curvature == 0.0) {
-    // Filter for points that are immediately in front of the car:
-    float closest_x = 1000.0;
-    cout << "here" << cloud.size() << endl;
-    for (Vector2f point : cloud) {
-      float y0 = point.y();
-      float x0 = point.x();
-      if (y0 <= car_width / 2.0 && y0 >= -car_width / 2.0 && x0 >= actual_car_length - offset) {
-        closest_x = std::min(closest_x, x0);
-      }
-    }
-    return closest_x - car_length + offset;
-  } else {  // curvature != 0.0
-
-    Vector2f center_of_turning = Vector2f(0.0, 1.0 / curvature);
-
-    float origin_to_left = 0.0;
-    float origin_to_right = 0.0;
-    float origin_to_front = car_length - offset;
-
-    if (curvature > 0) {
-      origin_to_left = 1.0 / curvature - car_width / 2.0;
-      origin_to_right = 1.0 / curvature + car_width / 2.0;
-      origin_to_front = car_length - offset;
-    } else {  // Curvature < 0
-      origin_to_left = -1.0 / curvature + car_width / 2.0;
-      origin_to_right = -1.0 / curvature - car_width / 2.0;
-      origin_to_front = car_length - offset;
-    }
-
-    // Vector2f rear_left = Vector2f(-offset, car_width / 2.0);
-    // Vector2f front_left = Vector2f(car_length-offset, car_width / 2.0);
-    // Vector2f rear_right = Vector2f(-offset, -car_width / 2.0);
-    // Vector2f front_right = Vector2f(car_length-offset, -car_width / 2.0);
-
-    float rear_left_radius = sqrt(offset * offset + origin_to_left * origin_to_left);
-    float rear_right_radius = sqrt(offset * offset + origin_to_right * origin_to_right);
-    float front_left_radius = sqrt(origin_to_front * origin_to_front + origin_to_left * origin_to_left);
-    float front_right_radius = sqrt(origin_to_front * origin_to_front + origin_to_right * origin_to_right);
-
-    // The shortest radius is rear_left; the longest is rear right
-    // We can filter into regions: obstacles that would hit the left side of the car; obstacles that would hit
-    // the right side of the car
-    cout << "Curvature is : " << curvature << endl;
-    cout << "Rear Right Radius:" << rear_right_radius << endl;
-    cout << "Rear Left Radius:" << rear_left_radius << endl;
-    cout << "Front Right Radius:" << front_right_radius << endl;
-    cout << "Front Left Radius:" << front_left_radius << endl;
-
-    vector<Vector2f> left_sweep = vector<Vector2f>();
-    vector<Vector2f> front_sweep = vector<Vector2f>();
-    vector<Vector2f> right_sweep = vector<Vector2f>();
-
-    // Put the point cloud points into buckets based on where in the swept region they lie.
-    if (curvature > 0) {
-      // Left side of car
-      Navigation::FilterDistances(center_of_turning, cloud, rear_left_radius, front_left_radius, left_sweep);
-      // Front side of car
-      Navigation::FilterDistances(center_of_turning, cloud, front_left_radius, front_right_radius, front_sweep);
-      // Right side of car
-      Navigation::FilterSectorRight(center_of_turning, cloud, -car_width / 2.0, rear_right_radius, right_sweep);
-    } else {  // curvature is negative
-      // Right side of car
-      Navigation::FilterDistances(center_of_turning, cloud, rear_right_radius, front_right_radius, right_sweep);
-      // Front side of car
-      Navigation::FilterDistances(center_of_turning, cloud, front_right_radius, front_left_radius, front_sweep);
-      // Left side of car
-      Navigation::FilterSectorLeft(center_of_turning, cloud, car_width / 2.0, rear_left_radius, left_sweep);
-    }
-
-    cout << "Left Sweep Size: " << left_sweep.size() << endl;
-    cout << "Right Sweep Size: " << right_sweep.size() << endl;
-    cout << "Front Sweep Size: " << front_sweep.size() << endl;
-
-    // For each point in the bucket, determine the minimum arc distance from the point to the car
-    float cinv = 1.0 / curvature;
-    float left_smallest = 2 * M_PI;
-    float front_smallest = 2 * M_PI;
-    float right_smallest = 2 * M_PI;
-    if (curvature > 0) {
-      // Distance angle of points to LEFT side of the car
-      for (Vector2f point : left_sweep) {
-        Vector2f delta = point - center_of_turning;
-        // Point cloud point
-        float x0 = point.x();
-        float y0 = point.y();
-        // Circle intersect with line segment solution
-        float y_val = car_width / 2.0;
-        float x_val = sqrt(Sq(x0) + Sq(y0 - cinv) - Sq(car_width / 2.0 - cinv));
-        Vector2f p_val = Vector2f(x_val, y_val);
-        Vector2f p_diff = p_val - center_of_turning;
-
-        // Compute a dot b = |a||b|cos\theta --> \theta = Arccos(a dot b / (|a||b|))
-        float cos_theta =
-            delta.dot(p_val - center_of_turning) / (geometry::GetNormOrZero(delta) * geometry::GetNormOrZero((p_diff)));
-        float angle = std::acos(cos_theta);
-        // Check which side of the line the obstacle lies on
-        if (x_val < 0.0) {
-          if (y0 > (y_val - cinv) * x0 / x_val + cinv) {
-            angle = 2 * M_PI - angle;
-          }
-        } else if (x_val > 0.0) {
-          if (y0 < (y_val - cinv) * x0 / x_val + cinv) {
-            angle = 2 * M_PI - angle;
-          }
-        } else {
-          angle = M_PI;
-        }
-        // keep shortest distance to the car
-        left_smallest = std::min(angle, left_smallest);
-      }
-
-      // Distance angle of points to FRONT side of the car
-      for (Vector2f point : front_sweep) {
-        Vector2f delta = point - center_of_turning;
-        // Point cloud point
-        float x0 = point.x();
-        float y0 = point.y();
-        // Circle intersect with line segment solution
-        float x_val = car_length - offset;
-        // NOTE that there are two solutions. The smaller one should have -w/2 < y < w/2, but we can test that
-        // assumption.
-        float y_val = cinv - sqrt(Sq(x0) + Sq(y0 - cinv) - Sq(x_val));
-        // float y_pos = cinv + sqrt(Sq(x0) + Sq(y0-cinv) - Sq(x_val));
-        // float y_val = neg;
-        // if(y_val <= car_width/2.0 && y_val >= -car_width/2.0) {
-        //   cout << "Valid value: "
-        // }
-        Vector2f p_val = Vector2f(x_val, y_val);
-        Vector2f p_diff = p_val - center_of_turning;
-
-        // Compute a dot b = |a||b|cos\theta --> \theta = Arccos(a dot b / (|a||b|))
-        float cos_theta =
-            delta.dot(p_val - center_of_turning) / (geometry::GetNormOrZero(delta) * geometry::GetNormOrZero(p_diff));
-        float angle = std::acos(cos_theta);
-        // Check which side of the line the obstacle lies on
-        if (y0 < (y_val - cinv) / x_val + cinv) {
-          angle = 2 * M_PI - angle;
-        }
-
-        // keep shortest distance to the car
-        front_smallest = std::min(angle, front_smallest);
-      }
-
-      // Distance angle of points to RIGHT side of the car
-      for (Vector2f point : right_sweep) {
-        Vector2f delta = point - center_of_turning;
-        // Point cloud point
-        float x0 = point.x();
-        float y0 = point.y();
-        // Circle intersect with line segment solution
-        float y_val = -car_width / 2.0;
-        float x_val = -sqrt(Sq(x0) + Sq(y0 - cinv) - Sq(y_val - cinv));
-        Vector2f p_val = Vector2f(x_val, y_val);
-        Vector2f p_diff = p_val - center_of_turning;
-
-        // Compute a dot b = |a||b|cos\theta --> \theta = Arccos(a dot b / (|a||b|))
-        float cos_theta =
-            delta.dot(p_val - center_of_turning) / (geometry::GetNormOrZero(delta) * geometry::GetNormOrZero(p_diff));
-        float angle = std::acos(cos_theta);
-        // keep shortest distance to the car
-        right_smallest = std::min(angle, right_smallest);
-      }
-    } else {  // Curvature < 0
-      // Distance angle of points to FRONT side of the car
-      for (Vector2f point : front_sweep) {
-        Vector2f delta = point - center_of_turning;
-        // Point cloud point
-        float x0 = point.x();
-        float y0 = point.y();
-        // Circle intersect with line segment solution
-        float x_val = car_length - offset;
-        // The different is the + sign
-        float y_val = cinv + sqrt(Sq(x0) + Sq(y0 - cinv) - Sq(x_val));
-        Vector2f p_val = Vector2f(x_val, y_val);
-        Vector2f p_diff = p_val - center_of_turning;
-
-        // Compute a dot b = |a||b|cos\theta --> \theta = Arccos(a dot b / (|a||b|))
-        float cos_theta =
-            delta.dot(p_val - center_of_turning) / (geometry::GetNormOrZero(delta) * geometry::GetNormOrZero(p_diff));
-        float angle = std::acos(cos_theta);
-        if (y0 > (y_val - cinv) / x_val + cinv) {
-          angle = 2 * M_PI - angle;
-        }
-        // keep shortest distance to the car
-        front_smallest = std::min(angle, front_smallest);
-      }
-
-      // Distance angle of points to RIGHT side of the car
-      for (Vector2f point : right_sweep) {
-        Vector2f delta = point - center_of_turning;
-        // Point cloud point
-        float x0 = point.x();
-        float y0 = point.y();
-        // Circle intersect with line segment solution
-        float y_val = -car_width / 2.0;
-        float x_val = sqrt(Sq(x0) + Sq(y0 - cinv) - Sq(y_val - cinv));
-        Vector2f p_val = Vector2f(x_val, y_val);
-        Vector2f p_diff = p_val - center_of_turning;
-
-        // Compute a dot b = |a||b|cos\theta --> \theta = Arccos(a dot b / (|a||b|))
-        float cos_theta =
-            delta.dot(p_val - center_of_turning) / (geometry::GetNormOrZero(delta) * geometry::GetNormOrZero(p_diff));
-        float angle = std::acos(cos_theta);
-        if (x_val < 0.0) {
-          if (y0 < (y_val - cinv) * x0 / x_val + cinv) {
-            angle = 2 * M_PI - angle;
-          }
-        } else if (x_val > 0.0) {
-          if (y0 > (y_val - cinv) * x0 / x_val + cinv) {
-            angle = 2 * M_PI - angle;
-          }
-        } else {
-          angle = M_PI;
-        }
-        // keep shortest distance to the car
-        right_smallest = std::min(angle, right_smallest);
-      }
-      // Distance angle of points to LEFT side of the car
-      for (Vector2f point : left_sweep) {
-        Vector2f delta = point - center_of_turning;
-        // Point cloud point
-        float x0 = point.x();
-        float y0 = point.y();
-        // Circle intersect with line segment solution
-        float y_val = car_width / 2.0;
-        float x_val = -sqrt(Sq(x0) + Sq(y0 - cinv) - Sq(y_val - cinv));
-        Vector2f p_val = Vector2f(x_val, y_val);
-        Vector2f p_diff = p_val - center_of_turning;
-
-        // Compute a dot b = |a||b|cos\theta --> \theta = Arccos(a dot b / (|a||b|))
-        float cos_theta =
-            delta.dot(p_val - center_of_turning) / (geometry::GetNormOrZero(delta) * geometry::GetNormOrZero(p_diff));
-        float angle = std::acos(cos_theta);
-        // keep shortest distance to the car
-        left_smallest = std::min(angle, left_smallest);
-      }
-    }
-
-    float smallest_angle = std::min(std::min(left_smallest, right_smallest), front_smallest);
-    cout << "All Angles: L: " << left_smallest << " R: " << right_smallest << "F: " << front_smallest << endl;
-    return Navigation::calc_arc_length(curvature, smallest_angle);
+  if (!autonomy_enabled_ and command_history_.size() > 0) {
+    printf("Clearing command history\n");
+    command_history_.clear();  // Clear command history when autonomy is disabled
   }
 }
 
-void Navigation::FilterSectorRight(const Vector2f& reference, const vector<Vector2f>& cloud, float y_val,
-                                   float max_dist, vector<Vector2f>& bucket) {
-  // If the point is between the circle and the chord of the circle:
-  float max_dist_sq = max_dist * max_dist;
-  for (Vector2f point : cloud) {
-    Vector2f delta = point - reference;
-    float delta_sq = delta.squaredNorm();
-
-    if (delta_sq <= max_dist_sq && point.y() <= y_val) {
-      // Add point to the return bucket
-      bucket.push_back(point);
-    }
+void Navigation::UpdateLocation(const Vector2f& loc, float angle) {
+  if (!localization_initialized_) {
+    robot_start_loc_ = loc;
+    robot_start_angle_ = angle;
+    localization_initialized_ = true;
+    robot_loc_ = loc;
+    robot_angle_ = angle;
+    return;
   }
-}
-
-void Navigation::FilterSectorLeft(const Vector2f& reference, const vector<Vector2f>& cloud, float y_val, float max_dist,
-                                  vector<Vector2f>& bucket) {
-  // If the point is between the circle and the chord of the circle:
-  float max_dist_sq = max_dist * max_dist;
-  for (Vector2f point : cloud) {
-    Vector2f delta = point - reference;
-    float delta_sq = delta.squaredNorm();
-
-    if (delta_sq <= max_dist_sq && point.y() >= y_val) {
-      // Add point to the return bucket
-      bucket.push_back(point);
-    }
-  }
-}
-
-void Navigation::FilterDistances(const Vector2f& reference, const vector<Vector2f>& cloud, float min_dist,
-                                 float max_dist, vector<Vector2f>& bucket) {
-  // Given a point cloud, filter them into whether they are located between min_dist and max_dist from the reference
-  // point
-  float min_dist_sq = min_dist * min_dist;
-  float max_dist_sq = max_dist * max_dist;
-
-  for (Vector2f point : cloud) {
-    Vector2f delta = point - reference;
-    float delta_sq = delta.squaredNorm();
-
-    if (delta_sq >= min_dist_sq && delta_sq <= max_dist_sq) {
-      // Add point to the return bucket
-      bucket.push_back(point);
-    }
-  }
-  // The bucket should now be populated with the correct points.
-}
-
-void Navigation::SetNavGoal(const Vector2f& loc, float angle) {}
-
-void Navigation::UpdateLocation(const Eigen::Vector2f& loc, float angle) {
-  localization_initialized_ = true;
   robot_loc_ = loc;
   robot_angle_ = angle;
 }
 
-void Navigation::UpdateOdometry(const Vector2f& loc, float angle, const Vector2f& vel, float ang_vel) {
+void Navigation::PruneCommandQueue() {
+  if (command_history_.empty()) return;
+  const double update_time = min(t_odom_, t_point_cloud_);  // conservative time range for command history
+
+  for (auto cmd_it = command_history_.begin(); cmd_it != command_history_.end();) {
+    if (cmd_it->time < update_time - params_.dt) {  // we received another command that
+                                                    // is closer to our update time
+                                                    // anything farther in time away than 1 dt from
+                                                    // update time is irrelevant
+      cmd_it = command_history_.erase(cmd_it);
+    } else {
+      ++cmd_it;
+    }
+  }
+}
+
+void Navigation::UpdateOdometry(const Vector2f& loc, float angle, const Vector2f& vel, float ang_vel, double time) {
+  if (FLAGS_v > 0) {
+    cout << "================ [Navigation] UPDATE ODOMETRY ================" << endl;
+    cout << "loc: " << loc << " angle: " << angle << " vel: " << vel.transpose() << " ang_vel: " << ang_vel
+         << " time: " << time << endl;
+    cout << "==============================================================\n" << endl;
+  }
+
   robot_omega_ = ang_vel;
   robot_vel_ = vel;
+  t_odom_ = time;
+  PruneCommandQueue();
+
   if (!odom_initialized_) {
     odom_start_angle_ = angle;
     odom_start_loc_ = loc;
     odom_initialized_ = true;
-    odom_loc_ = loc;
-    odom_angle_ = angle;
-    return;
   }
   odom_loc_ = loc;
   odom_angle_ = angle;
-
-  // update robot_loc_ based on diff of odom
-  robot_loc_ = robot_loc_ + (odom_loc_ - odom_start_loc_);
-  // update robot angle
-  robot_angle_ = robot_angle_ + (odom_angle_ - odom_start_angle_);
 }
 
 void Navigation::ObservePointCloud(const vector<Vector2f>& cloud, double time) {
-  // A scan from the cloud, associated with the baselink frame at that time.
+  if (FLAGS_v > 0) {
+    cout << "=============== [Navigation] UPDATE POINTCLOUD ===============" << endl;
+    cout << "cloud size: " << cloud.size() << " time: " << time << endl;
+    cout << "==============================================================\n" << endl;
+  }
   point_cloud_ = cloud;
-  obs_time = time;
+  t_point_cloud_ = time;
+  PruneCommandQueue();
 }
 
-vector<Vector2f> Navigation::forward_predict_cloud(const vector<Vector2f> cloud, std::deque<Controls> controls) {
-  Vector2f new_pose = Vector2f(0.0, 0.0);
-  double angular_change = 0;
+void Navigation::UpdateCommandHistory(const AckermannCurvatureDriveMsg& drive_msg) {
+  Command new_cmd;
+  new_cmd.time = ros::Time::now().toSec() + params_.system_latency;
+  new_cmd.drive_msg = drive_msg;
 
-  // Update with odom
-  // new_pose = new_pose + (robot_vel_ * time_interval);
-
-  double last_time = 0.0;
-  for (Controls i : controls) {
-    if (last_time != 0.0) {
-      time_interval = i.time - last_time;
-    }
-
-    last_time = i.time;
-
-    // Apply control on robot loc and get location for next time step
-
-    if (i.curvature == 0) {
-      // Only need to update x pose in base link frame
-      new_pose.x() += i.velocity * time_interval;  // TODO: What is the actual duration here?
-    } else {
-      double cur_angular_change = i.curvature * i.velocity * time_interval;  // TODO: What is the actual duration here?
-      angular_change += cur_angular_change;                                  // TODO: What is the actual duration here?
-
-      // Center of turning
-      Eigen::Vector2f center_of_turning = Vector2f(0, 1 / i.curvature);
-
-      // New pose in base link frame
-      Eigen::Rotation2Df r(cur_angular_change);
-      Vector2f arc_trans_pose = r * (-1 * center_of_turning) + center_of_turning;
-
-      // New pose in map frame
-      Eigen::Rotation2Df r_adj(angular_change);
-      Vector2f rotated_arc_trans_pose = r * arc_trans_pose;
-      new_pose += rotated_arc_trans_pose;
-    }
-  }
-
-  // Calculate lidar estimate relative to new pose
-  vector<Vector2f> new_cloud = vector<Vector2f>();
-  for (Vector2f point : cloud) {
-    // Apply rotation
-    Eigen::Rotation2Df r(-angular_change);
-    Vector2f new_point = r * point;
-
-    // Apply translation
-    new_point = new_point - new_pose;
-
-    new_cloud.push_back(new_point);
-  }
-
-  return new_cloud;
+  command_history_.push_back(new_cmd);
 }
 
-double Navigation::get_velocity(double arc_length, double pred_vel) {
-  cout << "Vel: " << pred_vel << endl;
+void Navigation::ForwardPredict(double time) {
+  if (FLAGS_v > 1) {
+    cout << "================ [Navigation] FORWARD PREDICT ================" << endl;
+    cout << "forward time: " << time << endl;
+  }
 
-  if (arc_length <= (abs(pred_vel) * abs(pred_vel)) / (2 * max_accel)) {
-    // Decelerate
-    if (pred_vel < 0) {
-      cout << "Backwards Decelerating" << endl;
-      return pred_vel + (max_accel * time_interval);
-    } else {
-      cout << "Forward Decelerating" << endl;
-      return pred_vel - (max_accel * time_interval);
-    }
-  } else {
-    // TODO Sadanand: not reqd, only equal to max_vel
-    if (abs(pred_vel) >= max_vel) {
-      // Maintain
-      cout << "Maintaining (Default)" << endl;
-      if (pred_vel < 0) {
-        return -1 * max_vel;
-      } else {
-        return max_vel;
+  Eigen::Affine2f fp_odom_tf = Eigen::Translation2f(odom_loc_) * Eigen::Rotation2Df(odom_angle_);
+  Eigen::Affine2f fp_local_tf = Eigen::Affine2f::Identity();
+  for (const Command& cmd : command_history_) {
+    const float cmd_v = cmd.drive_msg.velocity;
+    const float cmd_omega = cmd.drive_msg.velocity * cmd.drive_msg.curvature;
+    // Assume constant velocity and omega over the time interval
+    // want to compute distance traveled (vel * dt) and arc length (ang_vel * dt)
+    // and the value of the linear and angular velocity to use gives us the area
+    // of the trapezoid in the v-t space when we multiply by dt
+    const float v_mid = (robot_vel_.norm() + cmd_v) / 2.0f;
+    const float omega_mid = (robot_omega_ + cmd_omega) / 2.0f;
+
+    // Forward Predict Odometry
+    if (cmd.time >= t_odom_ - params_.dt) {  // start forward integrating from command before our
+                                             // most recent odometry (we are still executing the
+                                             // command in the timestep before the odom message)
+      // we know that this gives us the last command because the controller runs at a
+      // fixed frequency and you generate one command per controller iteration every dt
+
+      // in every iteration besides the first command in the control history, t_odom_ <
+      // cmd.time
+      const double dt = (t_odom_ > cmd.time)  // find time that we are executing the previous command for
+                            ? min<double>(params_.dt - (t_odom_ - cmd.time), params_.dt)
+                            : min<double>(time - cmd.time,
+                                          params_.dt);  // upper bound on how long we execute a command
+
+      // see trapezoid comment above for v_mid and omega_mid
+      const float dtheta = omega_mid * dt;
+      const float ds = v_mid * dt;
+      // Translation coeff for exponential map of se2 -- lie algebra dead reckoning /
+      // autonomous error equation: does not estimate future state based on past state
+      // Special matrix that tells you how much the angular rate of rotation affects the
+      // translation because we integrate the linear velocity and have angular rotation
+      // unless we are moving straight, we accummulate error by just using the linear
+      // velocity (the tangent -- it is a linear approximation) especially if our
+      // curvature is high a smaller dt may not necessarily decrease error with the
+      // linear velocity approximation; we could increase and decrease our error between
+      // steps
+      Eigen::Matrix2f V = Eigen::Matrix2f::Identity();
+      if (fabs(dtheta) > kEpsilon) {
+        V << sin(dtheta) / dtheta, (cos(dtheta) - 1) / dtheta, (1 - cos(dtheta)) / dtheta, sin(dtheta) / dtheta;
       }
-    } else {
-      // Find if we can accelerate safely here
-      // by forward evaluation of constraints
+      // Exponential map of translation part of se2 (in local frame)
+      Eigen::Vector2f dloc = V * Eigen::Vector2f(ds, 0);
+      // Update odom_tf in odom frame
+      fp_odom_tf = fp_odom_tf * Eigen::Translation2f(dloc) * Eigen::Rotation2Df(dtheta);
+      // Update odom_loc_ and odom_angle_ in odom frame
+      fp_odom_tf = fp_odom_tf * Eigen::Translation2f(dloc) * Eigen::Rotation2Df(dtheta);
+      odom_loc_ = fp_odom_tf.translation();
+      odom_angle_ = atan2(fp_odom_tf(1, 0), fp_odom_tf(0, 0));
 
-      // TODO Sadanand: this fwd check not needed, just do whats in else here
+      // Update robot_vel_ and robot_omega_
+      robot_vel_ = Eigen::Rotation2Df(odom_angle_) * Vector2f(cmd_v, 0);
+      robot_omega_ = cmd_omega;
+      t_odom_ = cmd.time;  // keep track of time of command we last executed
 
-      double temp_next_vel = abs(pred_vel) + (max_accel * time_interval);
-      double temp_next_arc_length = arc_length - (temp_next_vel * time_interval);
-
-      if (temp_next_arc_length <= (temp_next_vel * temp_next_vel) / (2 * max_accel)) {
-        // Unsafe to accelerate
-        cout << "Maintaining (Safety)" << endl;
-        return pred_vel;
-      } else {
-        // Can accelerate safely here
-        if (pred_vel < 0) {
-          cout << "Backwards Accelerating" << endl;
-          return pred_vel - (max_accel * time_interval);
-        } else {
-          cout << "Forward Accelerating" << endl;
-          return pred_vel + (max_accel * time_interval);
-        }
+      if (FLAGS_v > 1) {
+        cout << "dtheta " << dtheta << ", ds " << ds << endl;
+        cout << "V \n" << V << endl;
+        cout << "odom_loc_: " << odom_loc_.transpose() << ", odom_angle_: " << odom_angle_ << endl;
       }
     }
-  }
 
-  // TODO Sadanand: impossible, remove this
-  // Default case, shouldn't reach
-  cout << "BAD RETURN" << endl;
-  return 0.0;
-}
-
-double Navigation::calc_arc_length(double curvature, double angle) { return abs(angle / curvature); }
-
-vector<PathOption> Navigation::GeneratePathOptions(const vector<Vector2f>& new_cloud, float cmax, float cstep, float w1,
-                                                   float w2) {
-  vector<PathOption> path_options;
-  for (float curvature = -cmax; curvature <= cmax; curvature += cstep) {
-    PathOption option;
-    option.curvature = curvature;
-    option.free_path_length = Navigation::MinimumDistanceToObstacle(new_cloud, curvature);
-
-    // get cpa on arc
-    float fwd_x_goal = 8.0;
-    const Eigen::Vector2f nav_goal_loc_temp = Vector2f(fwd_x_goal, 0);
-    Eigen::Vector2f closest_point =
-        Navigation::CalculateClosestPointOnArc(robot_loc_, nav_goal_loc_temp, curvature, robot_angle_);
-
-    // get endpoint of arc
-    Eigen::Vector2f endpoint =
-        Navigation::CalculateArcEndpoint(robot_loc_, curvature, option.free_path_length, robot_angle_);
-
-    if (!Navigation::IsEndpointAfterCPA(robot_loc_, closest_point, endpoint, curvature, option.free_path_length)) {
-      closest_point = endpoint;
-    }
-
-    option.score = option.free_path_length + w1 * (1 - abs(curvature)) + w2 * closest_point.x();
-    path_options.push_back(option);
-  }
-  return path_options;
-}
-
-PathOption Navigation::ChooseBestPathOption(const vector<PathOption>& path_options) {
-  PathOption best_option;
-  float highest_score = -std::numeric_limits<float>::max();
-  for (const auto& option : path_options) {
-    // Check if the current option has a higher score
-    if (option.score > highest_score) {
-      highest_score = option.score;
-      best_option = option;
-    }
-    // In case of a tie, prefer an option with a curvature closer to 0.0
-    else if (option.score == highest_score && std::abs(option.curvature) < std::abs(best_option.curvature)) {
-      best_option = option;
+    // Forward Predict Point Cloud
+    if (cmd.time >= t_point_cloud_ - params_.dt) {
+      const double dt = (t_point_cloud_ > cmd.time) ? min<double>(params_.dt - (t_point_cloud_ - cmd.time), params_.dt)
+                                                    : min<double>(time - cmd.time, params_.dt);
+      // cout << "dt " << dt << endl;
+      // cout << "params_.dt " << params_.dt << endl;
+      // cout << "t_point_cloud_ " << t_point_cloud_ << " cmd.time " << cmd.time <<
+      // endl;
+      const float dtheta = omega_mid * dt;
+      const float ds = v_mid * dt;
+      // Translation coeff for exponential map of se2
+      Eigen::Matrix2f V = Eigen::Matrix2f::Identity();
+      if (fabs(dtheta) > kEpsilon) {
+        V << sin(dtheta) / dtheta, (cos(dtheta) - 1) / dtheta, (1 - cos(dtheta)) / dtheta, sin(dtheta) / dtheta;
+      }
+      // cout << "V" << V << endl;
+      // Exponential map of translation part of se2 (in local frame)
+      Eigen::Vector2f dloc = V * Eigen::Vector2f(ds, 0);
+      // Update local_tf in local frame
+      fp_local_tf = fp_local_tf * Eigen::Translation2f(dloc) * Eigen::Rotation2Df(dtheta);
     }
   }
-  return best_option;
+
+  // Forward Predict Point Cloud
+  Eigen::Affine2f inv_fp_local_tf = fp_local_tf.inverse();
+  fp_point_cloud_.resize(point_cloud_.size());
+  for (size_t i = 0; i < point_cloud_.size(); i++) {
+    fp_point_cloud_[i] = inv_fp_local_tf * point_cloud_[i];
+  }
 }
 
-bool Navigation::IsEndpointAfterCPA(const Eigen::Vector2f& robot_loc, const Eigen::Vector2f& closest_point_loc,
-                                    const Eigen::Vector2f& arc_endpoint_loc, float curvature, float arc_length) {
-  if (std::abs(curvature) < 1e-6) {  // Check for straight line case
-    // Movement in straight line
-    return (arc_endpoint_loc - robot_loc).norm() > (closest_point_loc - robot_loc).norm();
+bool Navigation::GetCarrot(Vector2f& carrot, const std::vector<FloatLocation>& plan_path_) {
+  const float kSqCarrotDist = Sq(14.0);
+  // CHECK_GE(plan_path_.size(), 2u);
 
+  if ((plan_path_[0].loc - robot_loc_).squaredNorm() < kSqCarrotDist) {
+    // Goal is within the carrot dist.
+    carrot = plan_path_[0].loc;
+    return true;
+  }
+
+  // Find closest line segment in plan to current location
+  float closest_dist = FLT_MAX;
+  int i0 = 0, i1 = 1;
+  for (size_t i = 0; i + 1 < plan_path_.size(); ++i) {
+    const Vector2f v0 = plan_path_[i].loc;
+    const Vector2f v1 = plan_path_[i + 1].loc;
+    const float dist_to_segment = geometry::DistanceFromLineSegment(robot_loc_, v0, v1);
+    if (dist_to_segment < closest_dist) {
+      closest_dist = dist_to_segment;
+      i0 = i;
+      i1 = i + 1;
+    }
+  }
+  // printf("closest: %d %d %f\n", i0, i1, closest_dist);
+
+  if (closest_dist > kSqCarrotDist) {
+    // Closest edge on the plan is farther than carrot dist to the robot.
+    // The carrot will be the projection of the robot loc on to the edge.
+    const Vector2f v0 = plan_path_[i0].loc;
+    const Vector2f v1 = plan_path_[i1].loc;
+    carrot = geometry::ProjectPointOntoLineSegment(robot_loc_, v0, v1);
+    return true;
+  }
+
+  // Iterate from current line segment to goal until the segment intersects
+  // the circle centered at the robot, of radius kCarrotDist.
+  // The goal is not within carrot dist of the robot, and the robot is within
+  // carrot dist of some line segment. Hence, there must exist at least one
+  // vertex along the plan towards the goal that is out of the carrot dist.
+  for (int i = i1; i - 1 >= 0; --i) {
+    i0 = i;
+    // const Vector2f v0 = plan_path_[i].loc;
+    const Vector2f v1 = plan_path_[i - 1].loc;
+    if ((v1 - robot_loc_).squaredNorm() > kSqCarrotDist) {
+      break;
+    }
+  }
+  i1 = i0 - 1;
+  // printf("i0:%d i1:%d\n", i0, i1);
+  const Vector2f v0 = plan_path_[i0].loc;
+  const Vector2f v1 = plan_path_[i1].loc;
+  Vector2f r0, r1;
+
+  const int num_intersections =
+      geometry::CircleLineIntersection<float>(robot_loc_, 14.0, v0, v1, &r0, &r1);
+  if (num_intersections == 0) {
+    fprintf(stderr,
+            "Error obtaining intersections:\n v0: (%f %f), v1: (%f %f), robot_loc_: (%f %f) sq_carrot_dist: (%f) "
+            "closest_dist: (%f)\n",
+            v0.x(), v0.y(), v1.x(), v1.y(), robot_loc_.x(), robot_loc_.y(), kSqCarrotDist, closest_dist);
+    return false;
+  }
+
+  if (num_intersections == 1 || (r0 - v1).squaredNorm() < (r1 - v1).squaredNorm()) {
+    carrot = r0;
   } else {
-    // Calculate the angles from the center of the circle to the robot_loc, CPA, and endpoint
-    // Calculate radius of the circle
-    float radius = 1 / std::abs(curvature);
-    // Calculate the center of the rotation circle
-    Eigen::Vector2f center =
-        robot_loc + Eigen::Rotation2Df(curvature > 0 ? -M_PI_2 : M_PI_2) * Eigen::Vector2f(0, radius);
-    Eigen::Vector2f center_to_robot = robot_loc - center;
-    Eigen::Vector2f center_to_cpa = closest_point_loc - center;
-    Eigen::Vector2f center_to_endpoint = arc_endpoint_loc - center;
-
-    float angle_to_robot = std::atan2(center_to_robot.y(), center_to_robot.x());
-    float angle_to_cpa = std::atan2(center_to_cpa.y(), center_to_cpa.x());
-    float angle_to_endpoint = std::atan2(center_to_endpoint.y(), center_to_endpoint.x());
-
-    // Normalize angles to the range [0, 2π)
-    auto normalize_angle = [](float angle) {
-      while (angle < 0) angle += 2 * M_PI;
-      while (angle >= 2 * M_PI) angle -= 2 * M_PI;
-      return angle;
-    };
-
-    angle_to_robot = normalize_angle(angle_to_robot);
-    angle_to_cpa = normalize_angle(angle_to_cpa);
-    angle_to_endpoint = normalize_angle(angle_to_endpoint);
-
-    // Determine if the endpoint is after the CPA based on curvature
-    if (curvature > 0) {  // Left turn
-      return normalize_angle(angle_to_endpoint - angle_to_robot) > normalize_angle(angle_to_cpa - angle_to_robot);
-    } else {  // Right turn
-      return normalize_angle(angle_to_robot - angle_to_endpoint) > normalize_angle(angle_to_robot - angle_to_cpa);
-    }
+    carrot = r1;
   }
-}
-
-Eigen::Vector2f Navigation::CalculateArcEndpoint(const Eigen::Vector2f& robot_loc, float curvature, float arc_length,
-                                                 float robot_angle) {
-  Eigen::Vector2f endpoint;
-
-  if (std::abs(curvature) < 1e-6) {  // Check for straight line case
-    // Movement in straight line
-    endpoint = robot_loc + Eigen::Vector2f(std::cos(robot_angle) * arc_length, std::sin(robot_angle) * arc_length);
-  } else {
-    // Calculate radius of the circle
-    float radius = 1 / std::abs(curvature);
-    // Calculate angle subtended by the arc (in radians)
-    float angle = arc_length / radius;
-    // Calculate the center of the rotation circle
-    Eigen::Vector2f center =
-        robot_loc + Eigen::Rotation2Df(curvature > 0 ? -M_PI_2 : M_PI_2) * Eigen::Vector2f(0, radius);
-
-    // Calculate endpoint of the arc
-    Eigen::Affine2f transform(Eigen::Translation2f(center) * Eigen::Rotation2Df(angle));
-    endpoint = transform * (robot_loc - center) + center;
-  }
-
-  return endpoint;
-}
-
-Eigen::Vector2f Navigation::CalculateClosestPointOnArc(const Eigen::Vector2f& robot_loc,
-                                                       const Eigen::Vector2f& goal_loc, float curvature,
-                                                       float robot_angle) {
-  Eigen::Vector2f closest_point_loc_;
-
-  if (std::abs(curvature) < 1e-6) {
-    // The path is a straight line
-    Eigen::Vector2f robot_to_goal = goal_loc - robot_loc;
-    Eigen::Vector2f robot_orientation(std::cos(robot_angle), std::sin(robot_angle));
-    float distance_along_path = robot_to_goal.dot(robot_orientation);
-    closest_point_loc_ = robot_loc + robot_orientation * distance_along_path;
-  } else {
-    // The path is an arc of a circle
-    float radius = 1 / std::abs(curvature);
-    Eigen::Vector2f circle_center =
-        robot_loc + Eigen::Rotation2Df(curvature > 0 ? -M_PI_2 : M_PI_2) * Eigen::Vector2f(0, radius);
-
-    Eigen::Vector2f center_to_goal = goal_loc - circle_center;
-    float goal_dist = center_to_goal.norm();
-
-    // Check if the goal is inside the circle
-    if (goal_dist < radius) {
-      // The closest point is not defined in this case because the goal is inside the turn circle
-      // return Eigen::Vector2f(std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN());
-      // return 0 TODO: hack
-      return Eigen::Vector2f(0, 0);
-    }
-
-    // Calculate the angle between the robot's starting location and the goal location
-    float angle_to_goal = std::atan2(center_to_goal.y(), center_to_goal.x());
-    // Calculate the angle from the robot's starting location to the closest point on the arc
-    float angle_to_closest_point = angle_to_goal - std::asin(radius / goal_dist);
-
-    // Calculate closest point coordinates on the arc
-    Eigen::Rotation2Df rot(angle_to_closest_point);
-    closest_point_loc_ = circle_center + rot * Eigen::Vector2f(radius, 0);
-  }
-
-  return closest_point_loc_;
+  return true;
 }
 
 void Navigation::Run() {
@@ -709,69 +354,181 @@ void Navigation::Run() {
   visualization::ClearVisualizationMsg(global_viz_msg_);
 
   // If odometry has not been initialized, we can't do anything.
-  if (!odom_initialized_) return;
+  if (!odom_initialized_) {
+    return;
+  }
 
-  // Forward predict point_cloud_ and pop top of queue that is too old
-  while (!controls.empty()) {
-    if (!controls.empty() && ((obs_time - controls.front().time) > actuation_latency)) {
-      controls.pop_front();
-    } else {
-      break;
+  if (FLAGS_simulation || autonomy_enabled_) {
+    // Predict laserscan and robot's odom state
+    ForwardPredict(ros::Time::now().toSec() + params_.system_latency);
+
+    cout << "RUN" << endl;
+
+    if (FLAGS_Test1DTOC) {
+      test1DTOC();
     }
+    if (FLAGS_TestSamplePaths) {
+      testSamplePaths(drive_msg_);
+    }
+
+
+    visualization::DrawCross(goal_loc_, 0.05, 0x990000, global_viz_msg_);
+
+    // Check if goal reached
+    float d = (goal_loc_ - robot_loc_).norm();
+    if (d < 0.25) {
+      drive_msg_.velocity = 0;
+      drive_msg_.curvature = 0;
+      printf("Goal reached\n");
+    } else {
+      // Convert current robot coords and goal loc to cells
+      Location start = transformCell(robot_loc_[0], robot_loc_[1]);
+      Location goal = transformCell(goal_loc_[0], goal_loc_[1]);
+
+      // Run JPS
+      auto came_from = jps(walled_grid_, start, goal, Tool::euclidean);
+      std::vector<Location> path = Tool::reconstruct_path(start, goal, came_from);
+
+      // Convert path to coords
+      std::vector<FloatLocation> path_coords;
+      for (const auto& loc : path) {
+        path_coords.push_back(untransformCell(loc.x, loc.y));
+        visualization::DrawCross(path_coords.back().loc, 0.1, 0x0000FF, global_viz_msg_);
+      }
+
+      Vector2f init_loc = robot_loc_;
+      for (const auto& coords:path_coords) {
+        visualization::DrawLine(init_loc, coords.loc, 0x330000, global_viz_msg_);
+        init_loc = coords.loc;
+      }
+
+      // Get carrot
+      Vector2f carrot(0, 0);
+      bool foundCarrot = GetCarrot(carrot, path_coords);
+      if (!foundCarrot) {
+        // stop
+        drive_msg_.velocity = 0;
+        drive_msg_.curvature = 0;
+        printf("Carrot not found\n");
+      } else {
+        // Run local navigation
+        Vector2f cur_local_target_ = Rotation2Df(-robot_angle_) * (carrot - robot_loc_);
+        visualization::DrawCross(cur_local_target_, 0.15, 0xFF00FF, local_viz_msg_);
+        RunLocalNavigation(drive_msg_, cur_local_target_);
+      }
+    }
+    drive_msg_.header.stamp = ros::Time::now();
+    drive_pub_.publish(drive_msg_);
+    // Queue the current command for future comparison.
+    UpdateCommandHistory(drive_msg_);
   }
 
-  vector<Vector2f> new_cloud = Navigation::forward_predict_cloud(point_cloud_, controls);
-
-  // Scoring
-  float cmax = 1.0;
-  float cstep = 0.05;
-  float w1 = 0.0;
-  float w2 = 2.0;
-  vector<PathOption> path_options = Navigation::GeneratePathOptions(new_cloud, cmax, cstep, w1, w2);
-  PathOption best_option = Navigation::ChooseBestPathOption(path_options);
-
-  // vector<Vector2f> new_cloud = point_cloud_;
-
-  // The control iteration goes here.
-  // Feel free to make helper functions to structure the control appropriately.
-
-  // The latest observed point cloud is accessible via "point_cloud_"
-
-  // Based on selected curvature (and thus arc lenght), get potential velocity value
-
-  double curvature = best_option.curvature;
-
-  // TODO: Transform point cloud to baselink frame.
-  // Navigation::TransformPointCloudToBaseLink(point_cloud_, offset);
-
-  double arc_length = Navigation::MinimumDistanceToObstacle(new_cloud, curvature);
-
-  cout << "Arc Length: " << arc_length << endl;
-
-  double velocity = 0.0;
-  if (!controls.empty()) {
-    velocity = Navigation::get_velocity(arc_length, controls.back().velocity);
-  } else {
-    velocity = Navigation::get_velocity(arc_length, 0.0);
+  // Visualize pointcloud
+  for (auto point : fp_point_cloud_) {
+    visualization::DrawPoint(point, 32762, local_viz_msg_);  // 32762
   }
-
-  drive_msg_.curvature = curvature;
-  cout << "Sending Velocity: " << velocity << endl;
-  cout << "Queue Size: " << controls.size() << endl;
-  drive_msg_.velocity = velocity;
-
-  Controls cur_control = {.time = ros::Time::now().toSec(), .curvature = curvature, .velocity = velocity};
-
-  controls.push_back(cur_control);
 
   // Add timestamps to all messages.
   local_viz_msg_.header.stamp = ros::Time::now();
   global_viz_msg_.header.stamp = ros::Time::now();
-  drive_msg_.header.stamp = ros::Time::now();
+
   // Publish messages.
   viz_pub_.publish(local_viz_msg_);
   viz_pub_.publish(global_viz_msg_);
-  drive_pub_.publish(drive_msg_);
+}
+
+void Navigation::test1DTOC() {
+  float c = 0;
+  // float r = 1 / c;
+  float r = 100;
+  drive_msg_.curvature = c;
+  float theta = M_PI_4;
+  Vector2f goal_loc =
+      robot_start_loc_ + Rotation2Df(robot_start_angle_) * Vector2f(fabs(r) * sin(theta), r * (1 - cos(theta)));
+
+  // Vector2f goal_loc_in_base_link_ = goal_loc - odom_loc_;
+  visualization::DrawCross(Vector2f(0, 0), 0.5, 32762, global_viz_msg_);
+  visualization::DrawCross(goal_loc, 0.1, 32762, global_viz_msg_);
+  printf("Running 1D TOC test\n");
+  printf("odom start loc x: %0.3f y: %0.3f theta:%0.3f\n", odom_start_loc_[0], odom_start_loc_[1], odom_start_angle_);
+  printf("robot start loc x: %0.3f y: %0.3f theta %0.3f", robot_start_loc_[0], robot_start_loc_[1], robot_start_angle_);
+  printf("robot loc x: %0.3f y: %0.3f theta %0.3f", robot_loc_[0], robot_loc_[1], robot_angle_);
+  printf("odom loc x: %0.3f y: %0.3f theta:%0.3f\n", odom_loc_[0], odom_loc_[1], odom_angle_);
+  printf("goal loc x: %0.3f y: %0.3f\n", goal_loc[0], goal_loc[1]);
+  float d = (goal_loc - robot_loc_).norm();
+  if (d > params_.goal_tolerance) {
+    float left_theta = acos((Sq(r) + Sq(r) - Sq(d)) / (2 * Sq(r)));  // Law of Cosines
+    float left_arc_length = fabs(r * left_theta);
+    motion_primitives::ConstantCurvatureArc curve(c, left_arc_length);
+    curve.getControlOnCurve(params_.linear_limits, robot_vel_.norm(), params_.dt, drive_msg_.velocity);
+  } else {
+    drive_msg_.velocity = 0;
+    printf("Test complete\n");
+    return;  // Don't update anything once test is finished
+  }
+}
+
+void Navigation::testSamplePaths(AckermannCurvatureDriveMsg& drive_msg) {
+  // Sample paths
+
+  printf("odom loc x: %0.3f y: %0.3f theta:%0.3f\n", odom_loc_[0], odom_loc_[1], odom_angle_);
+
+  Vector2f local_target(7, 0);
+  auto ackermann_sampler_ = motion_primitives::AckermannSampler(params_);
+  ackermann_sampler_.update(robot_vel_, robot_omega_, local_target, point_cloud_);
+  auto paths = ackermann_sampler_.getSamples(50);
+
+  auto ackermann_evaluator_ = motion_primitives::AckermannEvaluator(params_);
+  ackermann_evaluator_.update(local_target);
+  auto best_path = ackermann_evaluator_.findBestPath(paths);
+  best_path->getControlOnCurve(params_.linear_limits, robot_vel_.norm(), params_.dt, drive_msg.velocity);
+  drive_msg.curvature = best_path->curvature();
+
+  // Visualize paths
+  // int idx = 0;
+  for (auto path : paths) {
+    visualization::DrawPathOption(path->curvature(), path->arc_length(), path->clearance(), 32762, false,
+                                  local_viz_msg_);
+    // cout << "idx: " << idx++ <<  ", Curvature: " << path->curvature() << " Arc
+    // Length: " << path->arc_length()
+    //      << " Clearance: " << path->clearance() << endl;
+  }
+
+  visualization::DrawPathOption(best_path->curvature(), best_path->arc_length(), best_path->clearance(), 10000, false,
+                                local_viz_msg_);
+
+  return;
+}
+
+void Navigation::RunLocalNavigation(AckermannCurvatureDriveMsg& drive_msg, Vector2f local_target) {
+  // Sample paths
+
+  printf("odom loc x: %0.3f y: %0.3f theta:%0.3f\n", odom_loc_[0], odom_loc_[1], odom_angle_);
+
+  auto ackermann_sampler_ = motion_primitives::AckermannSampler(params_);
+  ackermann_sampler_.update(robot_vel_, robot_omega_, local_target, point_cloud_);
+  auto paths = ackermann_sampler_.getSamples(100);
+
+  auto ackermann_evaluator_ = motion_primitives::AckermannEvaluator(params_);
+  ackermann_evaluator_.update(local_target);
+  auto best_path = ackermann_evaluator_.findBestPath(paths);
+  best_path->getControlOnCurve(params_.linear_limits, robot_vel_.norm(), params_.dt, drive_msg.velocity);
+  drive_msg.curvature = best_path->curvature();
+
+  // Visualize paths
+  // int idx = 0;
+  for (auto path : paths) {
+    visualization::DrawPathOption(path->curvature(), path->arc_length(), path->clearance(), 32762, false,
+                                  local_viz_msg_);
+    // cout << "idx: " << idx++ <<  ", Curvature: " << path->curvature() << " Arc
+    // Length: " << path->arc_length()
+    //      << " Clearance: " << path->clearance() << endl;
+  }
+
+  visualization::DrawPathOption(best_path->curvature(), best_path->arc_length(), best_path->clearance(), 10000, false,
+                                local_viz_msg_);
+
+  return;
 }
 
 }  // namespace navigation

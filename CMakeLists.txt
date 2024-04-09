@@ -1,5 +1,17 @@
 PROJECT(reference_car)
-CMAKE_MINIMUM_REQUIRED(VERSION 2.6)
+CMAKE_MINIMUM_REQUIRED(VERSION 3.10)
+
+FIND_PACKAGE(Eigen3 3.3 REQUIRED NO_MODULE)
+MESSAGE(STATUS "Eigen3 Include Dirs: ${EIGEN3_INCLUDE_DIRS}")
+
+# # Enable CUDA
+# FIND_PACKAGE(CUDA REQUIRED)
+# enable_language(CUDA)
+# message(STATUS "CUDA Include Dirs: ${CUDA_INCLUDE_DIRS}")
+# message(STATUS "CUDA Libraries: ${CUDA_LIBRARIES}")
+
+# set(CMAKE_CUDA_STANDARD 11)
+# set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
 MESSAGE(STATUS "Compiling Reference Car Localization + Navigation")
 MESSAGE(STATUS "Using compiler: ${CMAKE_CXX_COMPILER}")
@@ -15,6 +27,14 @@ ELSEIF(${CMAKE_BUILD_TYPE} MATCHES "Debug")
   MESSAGE(STATUS "Additional Flags for Debug mode")
   SET(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -g")
 ENDIF()
+
+
+# FIND_PACKAGE( Eigen3 REQUIRED )
+# SET( EIGEN3_INCLUDE_DIR "$ENV{EIGEN3_INCLUDE_DIR}" )
+# IF( NOT EIGEN3_INCLUDE_DIR )
+#     MESSAGE( FATAL_ERROR "Please point the environment variable EIGEN3_INCLUDE_DIR to the include directory of your Eigen3 installation.")
+# ENDIF()
+# INCLUDE_DIRECTORIES ( "${EIGEN3_INCLUDE_DIR}" )
 
 INCLUDE($ENV{ROS_ROOT}/core/rosbuild/rosbuild.cmake)
 ROSBUILD_INIT()
@@ -37,21 +57,33 @@ ADD_LIBRARY(shared_library
 ADD_SUBDIRECTORY(src/shared)
 INCLUDE_DIRECTORIES(src/shared)
 INCLUDE_DIRECTORIES(src)
+INCLUDE_DIRECTORIES(${CUDA_INCLUDE_DIRS})
 
 ROSBUILD_ADD_EXECUTABLE(slam
                         src/slam/slam_main.cc
                         src/slam/slam.cc)
 TARGET_LINK_LIBRARIES(slam shared_library ${libs})
 
+# ADD_LIBRARY(particle_filter_cu
+#   src/particle_filter/particle_filter.cu
+# )
 
 ROSBUILD_ADD_EXECUTABLE(particle_filter
                         src/particle_filter/particle_filter_main.cc
                         src/particle_filter/particle_filter.cc)
+# set_target_properties(particle_filter PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+# TARGET_LINK_LIBRARIES(particle_filter particle_filter_cu shared_library ${libs} ${CUDA_LIBRARIES})
 TARGET_LINK_LIBRARIES(particle_filter shared_library ${libs})
 
 ROSBUILD_ADD_EXECUTABLE(navigation
+                        src/navigation/tools.cpp
+                        src/navigation/grid.cpp
+                        src/navigation/jps.cpp
                         src/navigation/navigation_main.cc
-                        src/navigation/navigation.cc)
+                        src/navigation/navigation.cc
+                        src/navigation/motion_primitives.cc
+                        src/navigation/constant_curvature_arc.cc
+                        src/navigation/ackermann_motion_primitives.cc)
 TARGET_LINK_LIBRARIES(navigation shared_library ${libs})
 
 ADD_EXECUTABLE(eigen_tutorial
