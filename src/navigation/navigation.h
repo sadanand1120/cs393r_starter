@@ -24,6 +24,10 @@
 #include <deque>
 #include <vector>
 
+#include "jps.hpp"
+#include "grid.hpp"
+#include "tools.hpp"
+
 #include "ackermann_motion_primitives.h"
 #include "amrl_msgs/AckermannCurvatureDriveMsg.h"
 #include "amrl_msgs/VisualizationMsg.h"
@@ -69,9 +73,7 @@ struct Command {
 class Navigation {
  public:
   // Constructor
-  explicit Navigation(const string& map_name,
-                      NavigationParams& params,
-                      ros::NodeHandle* n);
+  explicit Navigation(const string& map_name, NavigationParams& params, ros::NodeHandle* n);
 
   // Used in callback from localization to update position.
   void UpdateLocation(const Eigen::Vector2f& loc, float angle);
@@ -79,11 +81,7 @@ class Navigation {
   void PruneCommandQueue();
 
   // Used in callback for odometry messages to update based on odometry.
-  void UpdateOdometry(const Eigen::Vector2f& loc,
-                      float angle,
-                      const Eigen::Vector2f& vel,
-                      float ang_vel,
-                      double time);
+  void UpdateOdometry(const Eigen::Vector2f& loc, float angle, const Eigen::Vector2f& vel, float ang_vel, double time);
 
   // Updates based on an observed laser scan
   void ObservePointCloud(const std::vector<Eigen::Vector2f>& cloud, double time);
@@ -95,7 +93,9 @@ class Navigation {
 
   // Main function called continously from main
   void Run();
-  
+
+  bool GetCarrot(Vector2f& carrot, const std::vector<FloatLocation>& plan_path_);
+
   // Used to set the next target pose.
   void SetNavGoal(const Eigen::Vector2f& loc, float angle);
   // Used to set autonomy status
@@ -109,7 +109,7 @@ class Navigation {
 
   // Autonomy
   bool autonomy_enabled_;
-  
+
   bool odom_initialized_;
   bool localization_initialized_;
 
@@ -129,14 +129,19 @@ class Navigation {
   float robot_start_angle_;
   Eigen::Vector2f robot_loc_;
   float robot_angle_;
+
+  Eigen::Vector2f goal_loc_;
+  float goal_angle_;
+  Grid walled_grid_;
+
   double t_localization_;
 
   // command history
   std::deque<Command> command_history_;
 
   // Latest observed point cloud.
-  std::vector<Eigen::Vector2f> point_cloud_;  // base_link frame
-  std::vector<Eigen::Vector2f> fp_point_cloud_; // forward predicted base_link frame
+  std::vector<Eigen::Vector2f> point_cloud_;     // base_link frame
+  std::vector<Eigen::Vector2f> fp_point_cloud_;  // forward predicted base_link frame
   double t_point_cloud_;
 
   // Whether navigation is complete.
@@ -149,11 +154,10 @@ class Navigation {
   // Ackermann Path Sampler object
   motion_primitives::AckermannSampler ackermann_sampler_;
 
-  
-
   void test1DTOC();
 
   void testSamplePaths(AckermannCurvatureDriveMsg& drive_msg);
+  void RunLocalNavigation(AckermannCurvatureDriveMsg& drive_msg, Eigen::Vector2f local_target);
 };
 
 }  // namespace navigation

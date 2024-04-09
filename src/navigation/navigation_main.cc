@@ -69,7 +69,7 @@ DEFINE_string(laser_topic, "scan", "Name of ROS topic for LIDAR data");
 DEFINE_string(odom_topic, "odom", "Name of ROS topic for odometry data");
 DEFINE_string(loc_topic, "localization", "Name of ROS topic for localization");
 DEFINE_string(init_topic, "initialpose", "Name of ROS topic for initialization");
-DEFINE_string(map, "GDC1", "Name of vector map file");
+DEFINE_string(map, "GDC3", "Name of vector map file");
 
 bool run_ = true;
 sensor_msgs::LaserScan last_laser_msg_;
@@ -78,9 +78,7 @@ Navigation* navigation_ = nullptr;
 void LaserCallback(const sensor_msgs::LaserScan& msg) {
   if (FLAGS_v > 0) {
     cout << "=============== [Navigation Main] LaserCallback ==============" << endl;
-    printf("Laser t=%f, dt=%f\n",
-           msg.header.stamp.toSec(),
-           GetWallTime() - msg.header.stamp.toSec());
+    printf("Laser t=%f, dt=%f\n", msg.header.stamp.toSec(), GetWallTime() - msg.header.stamp.toSec());
     cout << "==============================================================\n" << endl;
   }
   // Location of the laser on the robot. Assumes the laser is forward-facing.
@@ -123,12 +121,10 @@ void OdometryCallback(const nav_msgs::Odometry& msg) {
     printf("Position: (%f,%f)\n", msg.pose.pose.position.x, msg.pose.pose.position.y);
     cout << "==============================================================\n" << endl;
   }
-  navigation_->UpdateOdometry(
-      Vector2f(msg.pose.pose.position.x, msg.pose.pose.position.y),
-      2.0 * atan2(msg.pose.pose.orientation.z, msg.pose.pose.orientation.w),
-      Vector2f(msg.twist.twist.linear.x, msg.twist.twist.linear.y),
-      msg.twist.twist.angular.z,
-      msg.header.stamp.toSec());
+  navigation_->UpdateOdometry(Vector2f(msg.pose.pose.position.x, msg.pose.pose.position.y),
+                              2.0 * atan2(msg.pose.pose.orientation.z, msg.pose.pose.orientation.w),
+                              Vector2f(msg.twist.twist.linear.x, msg.twist.twist.linear.y), msg.twist.twist.angular.z,
+                              msg.header.stamp.toSec());
 }
 
 void GoToCallback(const geometry_msgs::PoseStamped& msg) {
@@ -187,10 +183,10 @@ void LoadConfig(navigation::NavigationParams& params) {
   config_reader::ConfigReader reader({FLAGS_nav_config});
   params.dt = CONFIG_dt;
   params.system_latency = CONFIG_system_latency;
-  params.linear_limits = navigation::MotionLimits(
-      CONFIG_max_linear_accel, CONFIG_max_linear_deccel, CONFIG_max_linear_speed);
-  params.angular_limits = navigation::MotionLimits(
-      CONFIG_max_angular_accel, CONFIG_max_angular_deccel, CONFIG_max_angular_speed);
+  params.linear_limits =
+      navigation::MotionLimits(CONFIG_max_linear_accel, CONFIG_max_linear_deccel, CONFIG_max_linear_speed);
+  params.angular_limits =
+      navigation::MotionLimits(CONFIG_max_angular_accel, CONFIG_max_angular_deccel, CONFIG_max_angular_speed);
   params.max_curvature = CONFIG_max_curvature;
   params.max_path_length = CONFIG_max_path_length;
   params.max_clearance = CONFIG_max_clearance;
@@ -221,8 +217,7 @@ int main(int argc, char** argv) {
 
   ros::Subscriber string_sub = n.subscribe("string_topic", 1, &StringCallback);
   ros::Subscriber velocity_sub = n.subscribe(FLAGS_odom_topic, 1, &OdometryCallback);
-  ros::Subscriber localization_sub =
-      n.subscribe(FLAGS_loc_topic, 1, &LocalizationCallback);
+  ros::Subscriber localization_sub = n.subscribe(FLAGS_loc_topic, 1, &LocalizationCallback);
   ros::Subscriber laser_sub = n.subscribe(FLAGS_laser_topic, 1, &LaserCallback);
   ros::Subscriber goto_sub = n.subscribe("/move_base_simple/goal", 1, &GoToCallback);
   ros::Subscriber autonomy_sub = n.subscribe("/autonomy_enabler", 1, &AutonomyCallback);

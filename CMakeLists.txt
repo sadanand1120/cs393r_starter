@@ -76,6 +76,9 @@ ROSBUILD_ADD_EXECUTABLE(particle_filter
 TARGET_LINK_LIBRARIES(particle_filter shared_library ${libs})
 
 ROSBUILD_ADD_EXECUTABLE(navigation
+                        src/navigation/tools.cpp
+                        src/navigation/grid.cpp
+                        src/navigation/jps.cpp
                         src/navigation/navigation_main.cc
                         src/navigation/navigation.cc
                         src/navigation/motion_primitives.cc
