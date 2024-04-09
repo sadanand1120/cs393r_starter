@@ -396,6 +396,12 @@ void Navigation::Run() {
         visualization::DrawCross(path_coords.back().loc, 0.1, 0x0000FF, global_viz_msg_);
       }
 
+      Vector2f init_loc = robot_loc_;
+      for (const auto& coords:path_coords) {
+        visualization::DrawLine(init_loc, coords.loc, 0x330000, global_viz_msg_);
+        init_loc = coords.loc;
+      }
+
       // Get carrot
       Vector2f carrot(0, 0);
       bool foundCarrot = GetCarrot(carrot, path_coords);
