@@ -165,6 +165,7 @@ class Navigation {
 
   bool odom_initialized_;
   bool localization_initialized_;
+  bool has_plan_;
 
   // odom states
   Eigen::Vector2f odom_start_loc_;
@@ -199,12 +200,16 @@ class Navigation {
   // Navigation goal angle.
   float nav_goal_angle_;
 
+
   // Ackermann Path Sampler object
   motion_primitives::AckermannSampler ackermann_sampler_;
 
   void test1DTOC();
 
   void testSamplePaths(AckermannCurvatureDriveMsg& drive_msg);
+  void planner(AckermannCurvatureDriveMsg& drive_msg);
+  rrt_tree::RRT_Node* selectWaypoint(Eigen::Vector2f& robot_loc_, float robot_angle_, std::list<rrt_tree::RRT_Node*>& trajectory);
+
 };
 
 }  // namespace navigation

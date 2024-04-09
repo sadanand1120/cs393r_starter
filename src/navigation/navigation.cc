@@ -66,18 +66,18 @@ RRT_Tree::RRT_Tree(const Vector2f& root_odom_loc, const float root_odom_angle) {
 }
 
 RRT_Node* RRT_Tree::find_closest(Vector2f sampled_config) {
-  printf("Executing Find Closest:\n");
+  //printf("Executing Find Closest:\n");
   double min_dist = -1.0;
   RRT_Node* best_node = &root;
-  printf("Best Node initially set to %p\n", best_node);
+  //printf("Best Node initially set to %p\n", best_node);
   for (RRT_Node* n : tree) {
-    printf("loop Node in tree address is %p\n", &n);
+    //printf("loop Node in tree address is %p\n", &n);
     Eigen::Vector2f dist_to_config = n->odom_loc - sampled_config;
     float dist = dist_to_config.norm();
     if (min_dist == -1.0 || dist < min_dist) {
       min_dist = dist;
       best_node = n;
-      printf("Best Node Set to address: %p\n", best_node);
+      //printf("Best Node Set to address: %p\n", best_node);
     }
   }
 
@@ -87,16 +87,16 @@ RRT_Node* RRT_Tree::find_closest(Vector2f sampled_config) {
 std::list<RRT_Node*> RRT_Tree::make_trajectory(RRT_Node* found_goal_config) {
   std::list<RRT_Node*> trajectory = std::list<RRT_Node*>();
 
-  printf("Inside Make Trajectory\n");
+  //printf("Inside Make Trajectory\n");
   printf("Total Nodes in Tree: %ld\n", tree.size());
-  for (RRT_Node* r : tree) {
-    printf("Node Address: %p\n", r);
-    printf("Node Parent: %p\n", r->parent);
-    printf("Node Curvature: %f\n", r->inbound_curvature);
-    printf("Node Velocity: %f\n", r->inbound_vel);
-    printf("Node Odom Location: %f %f\n", r->odom_loc.x(), r->odom_loc.y());
-    printf("Node Odom Angle: %f\n", r->odom_angle);
-  }
+  //for (RRT_Node* r : tree) {
+    //printf("Node Address: %p\n", r);
+    //printf("Node Parent: %p\n", r->parent);
+    //printf("Node Curvature: %f\n", r->inbound_curvature);
+    //printf("Node Velocity: %f\n", r->inbound_vel);
+    //printf("Node Odom Location: %f %f\n", r->odom_loc.x(), r->odom_loc.y());
+    //printf("Node Odom Angle: %f\n", r->odom_angle);
+  //}
 
   RRT_Node* current = found_goal_config;
   int total_pushed = 0;
@@ -350,7 +350,7 @@ std::list<RRT_Node*> RRT_Tree::plan_trajectory(const Vector2f& odom_loc, const f
 
   double min_dist_to_goal = 100.0;
   double max_dist_from_root = 0.0;
-  int max_samples = 500;
+  int max_samples = 1000;
   int total_samples = 0;
 
   // Repeat until goal found
@@ -445,6 +445,7 @@ Navigation::Navigation(const string& map_name, NavigationParams& params, ros::No
       autonomy_enabled_(false),
       odom_initialized_(false),
       localization_initialized_(false),
+      has_plan_(false),
       robot_vel_(0, 0),
       robot_omega_(0),
       robot_loc_(0, 0),
@@ -668,8 +669,9 @@ void Navigation::Run() {
       test1DTOC();
     }
     //if (FLAGS_TestSamplePaths) {
-      testSamplePaths(drive_msg_);
+      //testSamplePaths(drive_msg_);
     //}
+    planner(drive_msg_);
 
     drive_msg_.header.stamp = ros::Time::now();
     drive_pub_.publish(drive_msg_);
@@ -722,6 +724,129 @@ void Navigation::test1DTOC() {
   }
 }
 
+void Navigation::planner(AckermannCurvatureDriveMsg& drive_msg) {
+  // Current Pose:
+  // robot_loc_;
+  // robot_angle_;
+  
+  // Sample paths
+  printf("Inside sample paths\n");
+  printf("odom loc x: %0.3f y: %0.3f theta:%0.3f\n", odom_loc_[0], odom_loc_[1], odom_angle_);
+
+  // Create Goal Configs
+  //Vector2f goal(6.85,12.07);
+  //Vector2f goal(8.0, 12.0);
+  //Vector2f goal(9.0, 9.0);
+  //Vector2f goal(-1.5, 5.0);
+  //Vector2f goal(2.0, 7.0);
+  Vector2f goal(-4.0, 6.0);
+  double goal_radius = 0.25;
+  visualization::DrawPoint(goal, 0xFF0000, global_viz_msg_);
+
+  // 1. Create a plan if there is no plan
+  std::list<rrt_tree::RRT_Node*> trajectory;
+  if (!has_plan_) {
+    // Make a plan if there is not existing plan
+    printf("Makaing a tree\n");
+    rrt_tree::RRT_Tree tree = rrt_tree::RRT_Tree(robot_loc_, robot_angle_);
+    trajectory = tree.plan_trajectory(robot_loc_, robot_angle_, goal, goal_radius, map_);
+    //printf("Planned a trajectory\n");
+    //for (rrt_tree::RRT_Node* node_ptr : trajectory) {
+    //  printf("Address: %p\n", node_ptr);
+    //  printf("  Parent: %p\n", node_ptr->parent);
+    printf("Trajectory length: %ld\n", trajectory.size());
+    //}
+    has_plan_ = true;
+  }
+
+  // 2. Given the current pose and current plan, select a global waypoint
+  rrt_tree::RRT_Node* global_target_node = selectWaypoint(robot_loc_, robot_angle_, trajectory);
+  if (global_target_node == NULL ){
+    printf("No waypoint found");
+    has_plan_ = false;
+    return;
+  }
+  // Convert to base_link frame
+  Vector2f local_target = Eigen::Rotation2Df(-robot_angle_)*(global_target_node->odom_loc - robot_loc_);
+
+  // Visualize
+  visualization::DrawCross(local_target, 0.5, 0xFF00FF, local_viz_msg_);
+  visualization::DrawCross(goal, 0.6, 0x999900, global_viz_msg_);
+  visualization::DrawCross(global_target_node->odom_loc, 0.6, 0x999900, global_viz_msg_);
+
+  // 3. Check if a local plan exists to the selected waypoint.
+  auto ackermann_sampler_ = motion_primitives::AckermannSampler(params_);
+  ackermann_sampler_.update(robot_vel_, robot_omega_, local_target, point_cloud_);
+  auto paths = ackermann_sampler_.getSamples(50);
+
+  auto ackermann_evaluator_ = motion_primitives::AckermannEvaluator(params_);
+  ackermann_evaluator_.update(local_target);
+  auto best_path = ackermann_evaluator_.findBestPath(paths);
+  // The best path is a curve. We can check if the endpoint is close to the local_target. If the endpoint
+  // is close to the local target, then we assume that the local target is reachable from the robot's
+  // current position.
+
+  const float dist_to_target = (local_target - best_path->getEndPoint()).norm(); // Feasibility check
+  // 3. This is the reachability check
+  if (dist_to_target < 0.10) {
+    // Assume reachable
+    best_path->getControlOnCurve(params_.linear_limits, robot_vel_.norm(), params_.dt, drive_msg.velocity);
+    drive_msg.curvature = best_path->curvature();
+
+  } else {
+    // Stop, and replan
+    float zero_v = 0.0;
+    best_path->getControlOnCurve(params_.linear_limits, robot_vel_.norm(), params_.dt, zero_v);
+    drive_msg.curvature = best_path->curvature();
+    has_plan_ = false; // Replan at next run
+  }
+
+  // Visualize
+  for (auto path : paths) {
+    visualization::DrawPathOption(path->curvature(), path->arc_length(), path->clearance(), 32762, false,
+                                    local_viz_msg_);
+      // cout << "idx: " << idx++ <<  ", Curvature: " << path->curvature() << " Arc
+      // Length: " << path->arc_length()
+      //      << " Clearance: " << path->clearance() << endl;
+  }
+
+  visualization::DrawPathOption(best_path->curvature(), best_path->arc_length(), best_path->clearance(), 10000, false,
+                                  local_viz_msg_);
+
+  return;
+}
+
+rrt_tree::RRT_Node* Navigation::selectWaypoint(
+    Eigen::Vector2f& robot_loc_, 
+    float robot_angle_, 
+    std::list<rrt_tree::RRT_Node*>& trajectory) {
+  // For selecting a waypoint, we find the one closest waypoint that is not at the car.
+
+  bool found_waypoint = false;
+  rrt_tree::RRT_Node* wayptr = NULL;
+  while (!found_waypoint && !trajectory.empty()) {
+    if (!trajectory.empty()) {
+      auto node_ptr = trajectory.front();
+      if ((robot_loc_ - node_ptr->odom_loc).norm() < 0.01) { 
+          trajectory.pop_front();
+          found_waypoint = false;
+          wayptr = node_ptr; // If we exhaust all the waypoints in the list,
+          // then at least wayptr will be the last one in the list.
+      } else {
+          found_waypoint = true;
+          wayptr = node_ptr;
+      }
+    }
+  }
+  if (!found_waypoint) {
+    has_plan_ = false;
+  }
+
+  return wayptr;
+}
+
+
+
 void Navigation::testSamplePaths(AckermannCurvatureDriveMsg& drive_msg) {
   // Sample paths
   printf("Inside sample paths\n");
@@ -732,8 +857,8 @@ void Navigation::testSamplePaths(AckermannCurvatureDriveMsg& drive_msg) {
   //Vector2f goal(8.0, 12.0);
   //Vector2f goal(9.0, 9.0);
   //Vector2f goal(-1.5, 5.0);
-  Vector2f goal(2.0, 7.0);
-  //Vector2f goal(-4.0, 6.0);
+  //Vector2f goal(2.0, 7.0);
+  Vector2f goal(-4.0, 6.0);
   double goal_radius = 0.25;
   visualization::DrawPoint(goal, 0xFF0000, global_viz_msg_);
 
@@ -758,8 +883,11 @@ void Navigation::testSamplePaths(AckermannCurvatureDriveMsg& drive_msg) {
 
   for (rrt_tree::RRT_Node* global_target_node : trajectory) {
     // Need to transform from global target to local target
-    Vector2f local_target = Eigen::Rotation2Df(-robot_angle_)*global_target_node->odom_loc + robot_loc_;
+    Vector2f local_target = Eigen::Rotation2Df(-robot_angle_)*(global_target_node->odom_loc - robot_loc_);
+    //Vector2f local_target = Eigen::Rotation2Df(-robot_angle_)*(goal - robot_loc_);
     visualization::DrawCross(local_target, 0.5, 0xFF00FF, local_viz_msg_);
+    visualization::DrawCross(goal, 0.6, 0x999900, global_viz_msg_);
+    visualization::DrawCross(global_target_node->odom_loc, 0.6, 0x999900, global_viz_msg_);
 
 
     //Vector2f local_target = global_target_node->odom_loc;
