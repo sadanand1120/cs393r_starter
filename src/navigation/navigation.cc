@@ -390,6 +390,7 @@ void Navigation::Run() {
       std::vector<FloatLocation> path_coords;
       for (const auto& loc : path) {
         path_coords.push_back(untransformCell(loc.x, loc.y));
+        visualization::DrawCross(path_coords.back().loc, 0.05, 0x009999, global_viz_msg_);
       }
 
       // Get carrot
