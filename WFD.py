@@ -1,12 +1,13 @@
 import queue
 import math
+import numpy as np
 
 def is_frontier(node, occupancy_grid):
     # Evaluates whether a point is on the frontier of exploration
     if occupancy_grid[node[0], node[1]] != 0.5:
         return False # Assumes frontier must be unexplored
     
-    for adj_node in get_adjacent(node):
+    for adj_node in get_adjacent(node, occupancy_grid):
         if occupancy_grid[adj_node[0], adj_node[1]] == 0:
             return True # Assumes frontier must be adjacent to free space
         
@@ -27,15 +28,15 @@ def get_adjacent(node, occupancy_grid):
             n_x = node[0] + x_diff
             n_y = node[1] + y_diff
 
-            if n_x > 0 and n_x < len(occupancy_grid):
-                assert False # This assumes 0 to max indexing for occupancy grid
-                if n_y > 0 and n_y < len(occupancy_grid[0]):
-                    assert False # This assumes that the occupancy grid is x by y 
-                    if occupancy_grid[nx, ny] == 1: 
+            if n_x > 0 and n_x < np.shape(occupancy_grid)[0]:
+                #assert False # This assumes 0 to max indexing for occupancy grid
+                if n_y > 0 and n_y < np.shape(occupancy_grid)[1]:
+                    #assert False # This assumes that the occupancy grid is x by y 
+                    if occupancy_grid[n_x, n_y] != 1: 
                         # Assumes 1 means obstacle
                         adj_list.append((n_x, n_y))
 
-    return adj_dim_diffs
+    return adj_list
 
 def get_dist(pt1, pt2):
     x_diff = pt1[0] - pt2[0]
@@ -102,6 +103,7 @@ def get_next_obs_point(occupancy_grid, pose):
     # Calculate the closest frontier median and return it
     next_loc = (-1,-1)
     min_dist = -1
+    print(len(frontiers))
     for frontier in frontiers:
         # Get the average x and y point
         x_avg = 0
@@ -112,9 +114,9 @@ def get_next_obs_point(occupancy_grid, pose):
             y_avg += node[1]/len(frontier)
 
         dist = get_dist(pose, (x_avg, y_avg))
-        if dist < min_dist:
+        if dist < min_dist or min_dist == -1:
             min_dist = dist
             
-            next_loc = (x_avg, y_avg)
+            next_loc = (int(round(x_avg)), int(round(y_avg)))
 
     return next_loc
