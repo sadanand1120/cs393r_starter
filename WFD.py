@@ -1,4 +1,5 @@
 import queue
+import math
 
 def is_frontier(node, occupancy_grid):
     # Evaluates whether a point is on the frontier of exploration
@@ -35,6 +36,12 @@ def get_adjacent(node, occupancy_grid):
                         adj_list.append((n_x, n_y))
 
     return adj_dim_diffs
+
+def get_dist(pt1, pt2):
+    x_diff = pt1[0] - pt2[0]
+    y_diff = pt1[1] - pt2[1]
+
+    return math.sqrt((x_diff**2) + (y_diff**2))
 
 def get_next_obs_point(occupancy_grid, pose):
     # Init map queue
@@ -90,3 +97,24 @@ def get_next_obs_point(occupancy_grid, pose):
                 map_open_list.append(adj_node)
 
         map_close_list.append(cur_node)
+
+    
+    # Calculate the closest frontier median and return it
+    next_loc = (-1,-1)
+    min_dist = -1
+    for frontier in frontiers:
+        # Get the average x and y point
+        x_avg = 0
+        y_avg = 0
+
+        for node in frontier:
+            x_avg += node[0]/len(frontier)
+            y_avg += node[1]/len(frontier)
+
+        dist = get_dist(pose, (x_avg, y_avg))
+        if dist < min_dist:
+            min_dist = dist
+            
+            next_loc = (x_avg, y_avg)
+
+    return next_loc
