@@ -44,7 +44,17 @@ def get_dist(pt1, pt2):
 
     return math.sqrt((x_diff**2) + (y_diff**2))
 
+def round_occ_grid(grid):
+    return np.round(grid*2)/2
+
 def get_next_obs_point(occupancy_grid, pose):
+    # Round occupancy grid (if it's true probabilities)
+    # such that 0 == assumed free space
+    #           1 == assumed obstacle
+    #           0.5 == assumed unexplored
+
+    occupancy_grid = round_occ_grid(occupancy_grid)
+
     # Init map queue
     map_queue = queue.Queue()
     map_queue.put(pose)
