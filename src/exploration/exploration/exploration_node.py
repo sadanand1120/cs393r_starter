@@ -4,7 +4,7 @@ from rclpy.node import Node
 from nav_msgs.msg import OccupancyGrid
 from geometry_msgs.msg import PoseStamped
 
-import ros_numpy
+import ros2_numpy
 
 import WFD
 
