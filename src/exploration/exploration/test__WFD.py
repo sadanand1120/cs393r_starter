@@ -75,3 +75,13 @@ occupancy_grid[11,10] = 0
 
 assert WFD.get_next_obs_point(occupancy_grid, (10,10)) == (12, 12)
 print('Test 8 Passed')
+
+occupancy_grid = np.array([[0.1, 0.3, 0.7, 0.9], [0.1, 0.3, 0.7, 0.9]])
+rounded = WFD.round_occ_grid(occupancy_grid)
+
+correct = np.array([[0. , 0.5, 0.5, 1. ], [0. , 0.5, 0.5, 1. ]])
+for x in range(np.shape(rounded)[0]):
+    for y in range(np.shape(rounded)[1]):
+        assert correct[x,y] == rounded[x,y]
+
+print("Test 9 Passed")
