@@ -2,7 +2,7 @@ import rclpy
 from rclpy.node import Node
 
 from nav_msgs.msg import OccupancyGrid
-from nav_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped
 
 import ros_numpy
 
@@ -24,7 +24,7 @@ class ExplorerNode(Node):
 
         self.pose_publisher = self.create_publisher(
             PoseStamped,
-           'nav_msgs/goal_pose')
+           '/goal_pose')
 
     def process_occupancy_grid_callback(self, occupancy_grid_msg):
         ## Turn the OccupancyGrid msg into a masked numpy array
@@ -35,7 +35,8 @@ class ExplorerNode(Node):
         target_pose = WFD.get_next_obs_point(masked_np_array, current_pose)
         ## Publish the target_pose to the correct topic..
         ## TODO: Convert the target_pose to the proper message type
-        pose_msg!!
+        pose_msg = navigator.getPoseStamped(target_pose, TurtleBot4Directions.NORTH)
+        
         self.pose_publisher.publish(pose_msg)
 
 def main(args=None):
