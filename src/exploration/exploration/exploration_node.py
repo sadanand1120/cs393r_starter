@@ -1,6 +1,8 @@
 import rclpy
+from rclpy.action import ActionClient
 from rclpy.node import Node
 
+from irobot_create_msgs.action import NavigateToPosition
 from nav_msgs.msg import OccupancyGrid
 from geometry_msgs.msg import PoseStamped
 
@@ -149,6 +151,9 @@ class ExplorerNode(Node):
     def __init__(self):
         super().__init__('exploration_node')
 
+        self.action_client= ActionClient(
+            self, NavigateToPosition, '/ut/navigate_to_position')
+
         # Subscribe to the nav_msgs/OccupancyGrid topic...
         self.occupancy_map_subscriber = self.create_subscription(
             OccupancyGrid, ### TODO What's the write name for this?
@@ -174,6 +179,37 @@ class ExplorerNode(Node):
             1
         )
 
+    def send_goal(self, pose_msg):
+        goal_msg = NavigateToPosition.Goal()
+
+        #pose_msg = navigator.getPoseStamped(target_pose, angle)
+
+        goal_msg.pose = pose_msg
+
+        self.action_client.wait_for_server()
+
+        self._send_goal_future = self.action_client.send_goal_async(
+            goal_msg, feedback_callback=self.feedback_callback)
+        self._send_goal_future.add_done_callback(self.goal_response_callback)
+
+    def goal_response_callback(self, future):
+        goal_handle = future.result()
+        if not goal_handle.accepted:
+            self.get_logger().info('Goal Rejected')
+            return
+
+        self.get_logger().info('Goal Accepted')
+        self._get_result_future = goal_handle.get_result_async()
+        self._get_result_future.add_done_callback(self.get_result_callback)
+
+    def get_result_callback(self, future):
+        result = future.result().result
+        self.get_logger().info('Result {0}'.format(result))
+
+    def feedback_callback(self, feedback_msg):
+        feedback = feedback_msg.feedback
+        self.get_logger().info('Feedback {0}'.format(feedback))
+
     def process_cmd_vel(self, cmd_vel_msg_):
         # Forward to ut/cmd_vel
         self.ut_cmd_vel_pub.publish(cmd_vel_msg_)
@@ -188,7 +224,7 @@ class ExplorerNode(Node):
         ## Publish the target_pose to the correct topic..
         ## TODO: Convert the target_pose to the proper message type
         pose_msg = navigator.getPoseStamped(target_pose, TurtleBot4Directions.NORTH)
-        
+        self.send_goal(pose_msg)
         self.pose_publisher.publish(pose_msg)
 
 def main(args=None):
