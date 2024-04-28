@@ -200,8 +200,11 @@ class ExplorerNode(Node):
     def goal_response_callback(self, future):
         goal_handle = future.result()
         if not goal_handle.accepted:
+            print("Goal Rejected")
             self.get_logger().info('Goal Rejected')
             return
+
+        print("Successful Goal")
 
         self.get_logger().info('Goal Accepted')
         self._get_result_future = goal_handle.get_result_async()
