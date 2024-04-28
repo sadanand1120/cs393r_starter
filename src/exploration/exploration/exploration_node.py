@@ -56,6 +56,7 @@ def round_occ_grid(grid):
     return np.round(grid*2)/2
 
 def get_next_obs_point(occupancy_grid, pose):
+    print("In WFD get_next_obs_point beginning")
     # Round occupancy grid (if it's true probabilities)
     # such that 0 == assumed free space
     #           1 == assumed obstacle
@@ -75,6 +76,8 @@ def get_next_obs_point(occupancy_grid, pose):
 
     # Init list of frontiers
     frontiers = []
+
+    print("Starting WFD BFS")
 
     while not map_queue.empty():
         cur_node = map_queue.get()
@@ -117,7 +120,7 @@ def get_next_obs_point(occupancy_grid, pose):
 
         map_close_list.append(cur_node)
 
-    
+    print("Done WFD BFS. Starting search for best frontier")
     # Calculate the closest frontier median and return it
     next_loc = (-1,-1)
     min_dist = -1
@@ -136,6 +139,8 @@ def get_next_obs_point(occupancy_grid, pose):
             min_dist = dist
             
             next_loc = (int(round(x_avg)), int(round(y_avg)))
+
+    print("Returning best frontier point: ", next_loc)
 
     return next_loc
 
@@ -215,6 +220,7 @@ class ExplorerNode(Node):
         self.ut_cmd_vel_pub.publish(cmd_vel_msg_)
 
     def process_occupancy_grid_callback(self, occupancy_grid_msg):
+        print("Got Occupancy Grid")
         ## Turn the OccupancyGrid msg into a masked numpy array
         masked_np_array = occupancygrid_to_numpy(occupancy_grid_msg)
         ## Need the robot's current pose.
