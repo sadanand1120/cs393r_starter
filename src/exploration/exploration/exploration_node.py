@@ -160,6 +160,23 @@ class ExplorerNode(Node):
             PoseStamped,
             '/goal_pose',
             1)
+        
+        self.cmd_vel_sub = self.create_subscription(
+            PoseStamped, #TODO IS THIS CORRECT?
+            '/cmd_vel',
+            self.process_cmd_vel,
+            1
+        )
+
+        self.ut_cmd_vel_pub = self.create_publisher(
+            PoseStamped, # CORRECT?? TODO
+            '/ut/cmd_vel',
+            1
+        )
+
+    def process_cmd_vel(self, cmd_vel_msg_):
+        # Forward to ut/cmd_vel
+        self.ut_cmd_vel_pub.publish(cmd_vel_msg_)
 
     def process_occupancy_grid_callback(self, occupancy_grid_msg):
         ## Turn the OccupancyGrid msg into a masked numpy array
