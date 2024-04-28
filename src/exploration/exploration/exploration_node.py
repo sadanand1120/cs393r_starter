@@ -2,9 +2,14 @@ import rclpy
 from rclpy.action import ActionClient
 from rclpy.node import Node
 
-from irobot_create_msgs.action import NavigateToPosition
-from nav_msgs.msg import OccupancyGrid
-from geometry_msgs.msg import PoseStamped
+#from irobot_create_msgs.action import NavigateToPosition
+from nav2_msgs.action import NavigateToPose
+from nav_msgs.msg import OccupancyGrid, Odometry
+from geometry_msgs.msg import PoseStamped, Twist
+
+import numpy as np
+import queue
+import math
 
 #import WFD
 
@@ -57,6 +62,7 @@ def round_occ_grid(grid):
 
 def get_next_obs_point(occupancy_grid, pose):
     print("In WFD get_next_obs_point beginning")
+    print("Occupancy Grid:\n", occupancy_grid)
     # Round occupancy grid (if it's true probabilities)
     # such that 0 == assumed free space
     #           1 == assumed obstacle
@@ -149,20 +155,32 @@ def get_next_obs_point(occupancy_grid, pose):
 
 def occupancygrid_to_numpy(msg):
     data = np.asarray(msg.data, dtype=np.int8).reshape(msg.info.height, msg.info.width)
-    return np.ma.array(data, mask=data==-1, fill_value=-1)
+    data = np.array(data, dtype=np.float32)
+    data = np.where(data < 0, 0.5, data/100.0)
+    return data
 
 class ExplorerNode(Node):
 
     def __init__(self):
+        print("In exploration Node init")
         super().__init__('exploration_node')
+        
+        #self.navigator = TurtleBot4Navigator()
 
-        self.action_client= ActionClient(
-            self, NavigateToPosition, '/ut/navigate_to_position')
+        print("Waiting for Nav2")
+        # Wait for Nav2
+        #self.navigator.waitUntilNav2Active()
+        print("Nav2 Active")
+
+        #self.action_client= ActionClient(
+        #    self, NavigateToPosition, '/ut/navigate_to_position')
+
+        self.action_client = ActionClient(self, NavigateToPose, '/navigate_to_pose')
 
         # Subscribe to the nav_msgs/OccupancyGrid topic...
         self.occupancy_map_subscriber = self.create_subscription(
             OccupancyGrid, ### TODO What's the write name for this?
-            'nav_msgs/OccupancyGrid',
+            '/map',
             self.process_occupancy_grid_callback,
             1) ## TODO: Queue size?
 
@@ -172,20 +190,35 @@ class ExplorerNode(Node):
             1)
         
         self.cmd_vel_sub = self.create_subscription(
-            PoseStamped, #TODO IS THIS CORRECT?
+            Twist, #TODO IS THIS CORRECT?
             '/cmd_vel',
             self.process_cmd_vel,
             1
         )
 
         self.ut_cmd_vel_pub = self.create_publisher(
-            PoseStamped, # CORRECT?? TODO
+            Twist, # CORRECT?? TODO
             '/ut/cmd_vel',
             1
         )
 
+        self.odom_sub = self.create_subscription(
+            Odometry,
+            '/odom',
+            self.process_odom,
+            1)
+
+        self.xy = (0,0)
+
+        print("Done Exploration Node INIT")
+
+    def process_odom(self, odom_msg):
+        self.xy = (odom_msg.pose.pose.position.x, odom_msg.pose.pose.position.y)
+
     def send_goal(self, pose_msg):
-        goal_msg = NavigateToPosition.Goal()
+        #goal_msg = NavigateToPosition.Goal()
+
+        goal_msg = NavigateToPose.Goal()
 
         #pose_msg = navigator.getPoseStamped(target_pose, angle)
 
@@ -229,12 +262,24 @@ class ExplorerNode(Node):
         ## Need the robot's current pose.
 
         ## Pass the array to WFD
-        target_pose = get_next_obs_point(masked_np_array, current_pose)
+        target_pose = get_next_obs_point(masked_np_array, self.xy)
         ## Publish the target_pose to the correct topic..
         ## TODO: Convert the target_pose to the proper message type
-        pose_msg = navigator.getPoseStamped(target_pose, TurtleBot4Directions.NORTH)
+        #pose_msg = self.navigator.getPoseStamped(target_pose, TurtleBot4Directions.NORTH)
+        pose_msg = PoseStamped()
+
+        pose_msg.header.frame_id = 'map'
+        pose_msg.header.stamp = self.get_clock().now().to_msg()
+
+        pose_msg.pose.position.x = float(target_pose[0])
+        pose_msg.pose.position.y = float(target_pose[1])
+
+        rotation = TurtleBot4Directions.NORTH # TODO Need to actually pick a direciton intelligently
+        pose_msg.pose.orientation.z = np.sin(np.deg2rad(rotation) / 2)
+        pose_msg.pose.orientation.w = np.cos(np.deg2rad(rotation) / 2)
+
         self.send_goal(pose_msg)
-        self.pose_publisher.publish(pose_msg)
+        #self.pose_publisher.publish(pose_msg)
 
 def main(args=None):
     rclpy.init(args=args)
@@ -249,23 +294,6 @@ if __name__ == '__main__':
 def main():
     rclpy.init()
 
-    navigator = TurtleBot4Navigator()
-
-    # Start on dock
-    if not navigator.getDockedStatus():
-        navigator.info('Docking before intialising pose')
-        navigator.dock()
-
-    # Set initial pose
-    # TODO: Get the actual pose of the robot
-    initial_pose = navigator.getPoseStamped([0.0, 0.0], TurtleBot4Directions.NORTH)
-    navigator.setInitialPose(initial_pose)
-
-    # TODO: Start the SLAM node
-    # startSLAM()...
-
-    # Wait for Nav2
-    navigator.waitUntilNav2Active()
 
     have_frontiers = True
 
