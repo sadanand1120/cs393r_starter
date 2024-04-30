@@ -5,11 +5,10 @@ from rclpy.node import Node
 #from irobot_create_msgs.action import NavigateToPosition
 from nav2_msgs.action import NavigateToPose
 from nav_msgs.msg import OccupancyGrid, Odometry
-from geometry_msgs.msg import PoseStamped, Twist
+from geometry_msgs.msg import PoseStamped, Twist, PoseWithCovarianceStamped
 
 import numpy as np
 import queue
-import math
 
 #import WFD
 
@@ -55,14 +54,25 @@ def get_dist(pt1, pt2):
     x_diff = pt1[0] - pt2[0]
     y_diff = pt1[1] - pt2[1]
 
-    return math.sqrt((x_diff**2) + (y_diff**2))
+    return np.sqrt((x_diff**2) + (y_diff**2))
 
 def round_occ_grid(grid):
     return np.round(grid*2)/2
 
+def has_open_neighbour(occupancy_grid, node):
+    for adj_node in get_adjacent(node, occupancy_grid):
+        if occupancy_grid[adj_node[0], adj_node[1]] == 0.0:
+            return True
+
+    return False
+
 def get_next_obs_point(occupancy_grid, pose):
     print("In WFD get_next_obs_point beginning")
-    print("Occupancy Grid:\n", occupancy_grid)
+    print(f"Occupancy Grid:{np.shape(occupancy_grid)}\n", occupancy_grid)
+    print("Current Pose:\n", pose)
+
+    assert occupancy_grid[pose[0], pose[1]] == 0.0
+
     # Round occupancy grid (if it's true probabilities)
     # such that 0 == assumed free space
     #           1 == assumed obstacle
@@ -76,6 +86,7 @@ def get_next_obs_point(occupancy_grid, pose):
 
     # Init lists to mark vals
     map_open_list = []
+    map_open_list.append(pose)
     map_close_list = []
     frontier_open_list = []
     frontier_close_list = []
@@ -84,9 +95,13 @@ def get_next_obs_point(occupancy_grid, pose):
     frontiers = []
 
     print("Starting WFD BFS")
+    total_checked = 0
 
     while not map_queue.empty():
+        print("Map Queue Size: ", map_queue.qsize(), \
+            f"  Total Checked: {total_checked} of {np.shape(occupancy_grid)[0] * np.shape(occupancy_grid)[1]}")
         cur_node = map_queue.get()
+        total_checked += 1
 
         if cur_node in map_close_list:
             continue
@@ -113,13 +128,14 @@ def get_next_obs_point(occupancy_grid, pose):
 
                 frontier_close_list.append(cur_f_node)
                 
-            frontiers.append(new_frontier)
+            if new_frontier != []:
+                frontiers.append(new_frontier)
 
-            for node in new_frontier:
-                map_close_list.append(node)
+                for node in new_frontier:
+                    map_close_list.append(node)
 
         for adj_node in get_adjacent(cur_node, occupancy_grid):
-            if adj_node not in map_open_list and adj_node not in map_close_list:
+            if adj_node not in map_open_list and adj_node not in map_close_list and has_open_neighbour(occupancy_grid, adj_node):
                 map_queue.put(adj_node)
 
                 map_open_list.append(adj_node)
@@ -130,7 +146,8 @@ def get_next_obs_point(occupancy_grid, pose):
     # Calculate the closest frontier median and return it
     next_loc = (-1,-1)
     min_dist = -1
-    print(len(frontiers))
+    print("Number of Frontiers", len(frontiers))
+    print("Occupancy Grid Min/Max:\n", np.min(occupancy_grid), np.max(occupancy_grid))
     for frontier in frontiers:
         # Get the average x and y point
         x_avg = 0
@@ -157,7 +174,12 @@ def occupancygrid_to_numpy(msg):
     data = np.asarray(msg.data, dtype=np.int8).reshape(msg.info.height, msg.info.width)
     data = np.array(data, dtype=np.float32)
     data = np.where(data < 0, 0.5, data/100.0)
-    return data
+
+    origin = (msg.info.origin.position.x, msg.info.origin.position.y)
+
+    resolution = msg.info.resolution
+
+    return data, origin, resolution
 
 class ExplorerNode(Node):
 
@@ -208,17 +230,32 @@ class ExplorerNode(Node):
             self.process_odom,
             1)
 
+        self.cur_pose_sub = self.create_subscription(
+            PoseWithCovarianceStamped,
+            '/pose',
+            self.process_cur_pose,
+            1
+        )
+
         self.xy = (0,0)
+        self.executing = False
 
         print("Done Exploration Node INIT")
 
     def process_odom(self, odom_msg):
-        self.xy = (odom_msg.pose.pose.position.x, odom_msg.pose.pose.position.y)
+        self.xy_odom = (odom_msg.pose.pose.position.x, odom_msg.pose.pose.position.y)
+
+    def process_cur_pose(self, pose_msg):
+        self.xy = (pose_msg.pose.pose.position.x, pose_msg.pose.pose.position.y)
+        assert False
+        print("Pose: ", self.xy)
+        assert False
 
     def send_goal(self, pose_msg):
         #goal_msg = NavigateToPosition.Goal()
-
         goal_msg = NavigateToPose.Goal()
+
+        self.executing = True
 
         #pose_msg = navigator.getPoseStamped(target_pose, angle)
 
@@ -232,6 +269,7 @@ class ExplorerNode(Node):
 
     def goal_response_callback(self, future):
         goal_handle = future.result()
+        self.executing = False
         if not goal_handle.accepted:
             print("Goal Rejected")
             self.get_logger().info('Goal Rejected')
@@ -256,13 +294,17 @@ class ExplorerNode(Node):
         self.ut_cmd_vel_pub.publish(cmd_vel_msg_)
 
     def process_occupancy_grid_callback(self, occupancy_grid_msg):
+        if self.executing:
+            return
+
         print("Got Occupancy Grid")
         ## Turn the OccupancyGrid msg into a masked numpy array
-        masked_np_array = occupancygrid_to_numpy(occupancy_grid_msg)
+        masked_np_array, offset, resolution = occupancygrid_to_numpy(occupancy_grid_msg)
         ## Need the robot's current pose.
 
         ## Pass the array to WFD
-        target_pose = get_next_obs_point(masked_np_array, self.xy)
+        current_pose = (int((self.xy[0] - offset[0])/resolution), int((self.xy[1] - offset[1])/resolution))
+        target_pose = get_next_obs_point(masked_np_array, current_pose)
         ## Publish the target_pose to the correct topic..
         ## TODO: Convert the target_pose to the proper message type
         #pose_msg = self.navigator.getPoseStamped(target_pose, TurtleBot4Directions.NORTH)
@@ -271,8 +313,10 @@ class ExplorerNode(Node):
         pose_msg.header.frame_id = 'map'
         pose_msg.header.stamp = self.get_clock().now().to_msg()
 
-        pose_msg.pose.position.x = float(target_pose[0])
-        pose_msg.pose.position.y = float(target_pose[1])
+        pose_msg.pose.position.x = float(target_pose[0] + offset[0]) * resolution
+        pose_msg.pose.position.y = float(target_pose[1] + offset[1]) * resolution
+
+        print(f"Sending Goal: {(pose_msg.pose.position.x, pose_msg.pose.position.y)} from position: {(self.xy[0], self.xy[1])}")
 
         rotation = TurtleBot4Directions.NORTH # TODO Need to actually pick a direciton intelligently
         pose_msg.pose.orientation.z = np.sin(np.deg2rad(rotation) / 2)
