@@ -10,6 +10,12 @@ from geometry_msgs.msg import PoseStamped, Twist, PoseWithCovarianceStamped
 import numpy as np
 import queue
 
+import torch
+
+import random
+
+from matplotlib import pyplot as plt
+
 #import WFD
 
 from turtlebot4_navigation.turtlebot4_navigator import TurtleBot4Directions, TurtleBot4Navigator
@@ -66,12 +72,23 @@ def has_open_neighbour(occupancy_grid, node):
 
     return False
 
-def get_next_obs_point(occupancy_grid, pose):
+def get_next_obs_point(occupancy_grid, pose, min_dist_to_next_pose=4):
     print("In WFD get_next_obs_point beginning")
     print(f"Occupancy Grid:{np.shape(occupancy_grid)}\n", occupancy_grid)
     print("Current Pose:\n", pose)
 
-    assert occupancy_grid[pose[0], pose[1]] == 0.0
+    if occupancy_grid[pose[0], pose[1]] != 0.0:
+        print(pose)
+        print(occupancy_grid[pose[0], pose[1]])
+        occupancy_grid[pose[0], pose[1]] = 0.75
+        occupancy_grid[14, 70] = 0.25 # (6.8323068230171575, -7.227799975885903), res: [0.19851485 0.19767442]
+                                        # should be (4, -4), origin (-9,-7)
+
+                                        # AT  (3.71, -3.29) -> (19, 69)
+        plt.imshow(occupancy_grid)
+        plt.show()
+        assert False
+        #occupancy_grid[pose[0], pose[1]] = 0.0
 
     # Round occupancy grid (if it's true probabilities)
     # such that 0 == assumed free space
@@ -146,6 +163,8 @@ def get_next_obs_point(occupancy_grid, pose):
     # Calculate the closest frontier median and return it
     next_loc = (-1,-1)
     min_dist = -1
+    frontier_idx = 0
+    cur_idx = 0
     print("Number of Frontiers", len(frontiers))
     print("Occupancy Grid Min/Max:\n", np.min(occupancy_grid), np.max(occupancy_grid))
     for frontier in frontiers:
@@ -158,10 +177,14 @@ def get_next_obs_point(occupancy_grid, pose):
             y_avg += node[1]/len(frontier)
 
         dist = get_dist(pose, (x_avg, y_avg))
-        if dist < min_dist or min_dist == -1:
+        if (dist < min_dist and dist > min_dist_to_next_pose) or min_dist == -1:
             min_dist = dist
-            
-            next_loc = (int(round(x_avg)), int(round(y_avg)))
+            frontier_idx = cur_idx
+
+        cur_idx += 1
+
+    rand_pose = random.choice(frontiers[frontier_idx])        
+    next_loc = (int(rand_pose[0]), int(rand_pose[1]))
 
     print("Returning best frontier point: ", next_loc)
 
@@ -170,14 +193,35 @@ def get_next_obs_point(occupancy_grid, pose):
 
 
 
-def occupancygrid_to_numpy(msg):
+def occupancygrid_to_numpy(msg, max_pool_data=True, max_data_dim=100):
     data = np.asarray(msg.data, dtype=np.int8).reshape(msg.info.height, msg.info.width)
     data = np.array(data, dtype=np.float32)
     data = np.where(data < 0, 0.5, data/100.0)
 
-    origin = (msg.info.origin.position.x, msg.info.origin.position.y)
+    if max_pool_data:
+        max_dim = np.max(np.shape(data))
 
-    resolution = msg.info.resolution
+        max_pool_dim = max_dim / (max_data_dim + 1)
+        max_pool_dim = int(np.ceil(max_pool_dim))
+
+        old_data_shape = np.shape(data)
+
+        torch_data = torch.from_numpy(data)
+        torch_data = torch_data.expand(1, torch_data.size()[0], torch_data.size()[1])
+        m = torch.nn.MaxPool2d(max_pool_dim, stride=max_pool_dim)
+        torch_data = m(torch_data)
+        data = torch_data.numpy()
+        data = np.squeeze(data)
+
+        new_data_shape = np.shape(data)
+
+        temp_resolution = msg.info.resolution * np.array(old_data_shape) / (np.array(new_data_shape) + 1)
+        resolution = np.array([temp_resolution[1], temp_resolution[0]])
+
+    else:
+        resolution = msg.info.resolution
+
+    origin = (msg.info.origin.position.x, msg.info.origin.position.y)
 
     return data, origin, resolution
 
@@ -239,6 +283,8 @@ class ExplorerNode(Node):
 
         self.xy = (0,0)
         self.executing = False
+        self.occupancy_grid_msg = None
+        self.new_pose = False
 
         print("Done Exploration Node INIT")
 
@@ -247,9 +293,7 @@ class ExplorerNode(Node):
 
     def process_cur_pose(self, pose_msg):
         self.xy = (pose_msg.pose.pose.position.x, pose_msg.pose.pose.position.y)
-        assert False
-        print("Pose: ", self.xy)
-        assert False
+        self.new_pose = True
 
     def send_goal(self, pose_msg):
         #goal_msg = NavigateToPosition.Goal()
@@ -269,10 +313,10 @@ class ExplorerNode(Node):
 
     def goal_response_callback(self, future):
         goal_handle = future.result()
-        self.executing = False
         if not goal_handle.accepted:
             print("Goal Rejected")
             self.get_logger().info('Goal Rejected')
+            self.exec_occupancy_grid(self.occupancy_grid_msg)
             return
 
         print("Successful Goal")
@@ -285,6 +329,10 @@ class ExplorerNode(Node):
         result = future.result().result
         self.get_logger().info('Result {0}'.format(result))
 
+        self.executing = False
+
+        self.exec_occupancy_grid(self.occupancy_grid_msg)
+
     def feedback_callback(self, feedback_msg):
         feedback = feedback_msg.feedback
         self.get_logger().info('Feedback {0}'.format(feedback))
@@ -294,16 +342,28 @@ class ExplorerNode(Node):
         self.ut_cmd_vel_pub.publish(cmd_vel_msg_)
 
     def process_occupancy_grid_callback(self, occupancy_grid_msg):
+        if not self.new_pose:
+            return
         if self.executing:
             return
 
+        self.new_pose = False
+
+        if self.occupancy_grid_msg == None:
+            self.exec_occupancy_grid(occupancy_grid_msg)
+
+        self.occupancy_grid_msg = occupancy_grid_msg
+
         print("Got Occupancy Grid")
+
+    def exec_occupancy_grid(self, occupancy_grid_msg):
         ## Turn the OccupancyGrid msg into a masked numpy array
         masked_np_array, offset, resolution = occupancygrid_to_numpy(occupancy_grid_msg)
         ## Need the robot's current pose.
 
         ## Pass the array to WFD
-        current_pose = (int((self.xy[0] - offset[0])/resolution), int((self.xy[1] - offset[1])/resolution))
+        print("Saved current xy: ", self.xy)
+        current_pose = (int((self.xy[1] - offset[1])/resolution[1]), int((self.xy[0] - offset[0])/resolution[0]))
         target_pose = get_next_obs_point(masked_np_array, current_pose)
         ## Publish the target_pose to the correct topic..
         ## TODO: Convert the target_pose to the proper message type
@@ -313,14 +373,16 @@ class ExplorerNode(Node):
         pose_msg.header.frame_id = 'map'
         pose_msg.header.stamp = self.get_clock().now().to_msg()
 
-        pose_msg.pose.position.x = float(target_pose[0] + offset[0]) * resolution
-        pose_msg.pose.position.y = float(target_pose[1] + offset[1]) * resolution
+        pose_msg.pose.position.x = float(target_pose[1] * resolution[1] + offset[0])
+        pose_msg.pose.position.y = float(target_pose[0] * resolution[0] + offset[1])
 
         print(f"Sending Goal: {(pose_msg.pose.position.x, pose_msg.pose.position.y)} from position: {(self.xy[0], self.xy[1])}")
 
         rotation = TurtleBot4Directions.NORTH # TODO Need to actually pick a direciton intelligently
         pose_msg.pose.orientation.z = np.sin(np.deg2rad(rotation) / 2)
         pose_msg.pose.orientation.w = np.cos(np.deg2rad(rotation) / 2)
+
+        self.executing = True
 
         self.send_goal(pose_msg)
         #self.pose_publisher.publish(pose_msg)
