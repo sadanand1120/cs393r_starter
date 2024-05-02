@@ -73,9 +73,9 @@ def has_open_neighbour(occupancy_grid, node):
     return False
 
 def get_next_obs_point(occupancy_grid, pose, min_dist_to_next_pose=4):
-    print("In WFD get_next_obs_point beginning")
-    print(f"Occupancy Grid:{np.shape(occupancy_grid)}\n", occupancy_grid)
-    print("Current Pose:\n", pose)
+    #print("In WFD get_next_obs_point beginning")
+    #print(f"Occupancy Grid:{np.shape(occupancy_grid)}\n", occupancy_grid)
+    #print("Current Pose:\n", pose)
 
     if occupancy_grid[pose[0], pose[1]] != 0.0:
         print(pose)
@@ -111,12 +111,12 @@ def get_next_obs_point(occupancy_grid, pose, min_dist_to_next_pose=4):
     # Init list of frontiers
     frontiers = []
 
-    print("Starting WFD BFS")
+    #("Starting WFD BFS")
     total_checked = 0
 
     while not map_queue.empty():
-        print("Map Queue Size: ", map_queue.qsize(), \
-            f"  Total Checked: {total_checked} of {np.shape(occupancy_grid)[0] * np.shape(occupancy_grid)[1]}")
+        #print("Map Queue Size: ", map_queue.qsize(), \
+        #    f"  Total Checked: {total_checked} of {np.shape(occupancy_grid)[0] * np.shape(occupancy_grid)[1]}")
         cur_node = map_queue.get()
         total_checked += 1
 
@@ -159,14 +159,14 @@ def get_next_obs_point(occupancy_grid, pose, min_dist_to_next_pose=4):
 
         map_close_list.append(cur_node)
 
-    print("Done WFD BFS. Starting search for best frontier")
+    #print("Done WFD BFS. Starting search for best frontier")
     # Calculate the closest frontier median and return it
     next_loc = (-1,-1)
     min_dist = -1
     frontier_idx = 0
     cur_idx = 0
-    print("Number of Frontiers", len(frontiers))
-    print("Occupancy Grid Min/Max:\n", np.min(occupancy_grid), np.max(occupancy_grid))
+    #print("Number of Frontiers", len(frontiers))
+    #print("Occupancy Grid Min/Max:\n", np.min(occupancy_grid), np.max(occupancy_grid))
     for frontier in frontiers:
         # Get the average x and y point
         x_avg = 0
@@ -186,7 +186,7 @@ def get_next_obs_point(occupancy_grid, pose, min_dist_to_next_pose=4):
     rand_pose = random.choice(frontiers[frontier_idx])        
     next_loc = (int(rand_pose[0]), int(rand_pose[1]))
 
-    print("Returning best frontier point: ", next_loc)
+    #print("Returning best frontier point: ", next_loc)
 
     return next_loc
 
@@ -286,10 +286,27 @@ class ExplorerNode(Node):
         self.occupancy_grid_msg = None
         self.new_pose = False
 
+        self.xy_odom = None
+        self.prev_xy_odom = None
+        self.total_dist = 0
+
         print("Done Exploration Node INIT")
 
     def process_odom(self, odom_msg):
-        self.xy_odom = (odom_msg.pose.pose.position.x, odom_msg.pose.pose.position.y)
+        new_odom = (odom_msg.pose.pose.position.x, odom_msg.pose.pose.position.y)
+
+        if self.xy_odom != None:
+            dist_to_new_odom = np.sqrt((self.xy_odom[0] - new_odom[0]) ** 2 + (self.xy_odom[1] - new_odom[1]) ** 2)
+            if dist_to_new_odom > 0:
+                self.prev_xy_odom = self.xy_odom
+                self.xy_odom = new_odom
+
+                self.total_dist += np.sqrt((self.xy_odom[0] - self.prev_xy_odom[0]) ** 2 + (self.xy_odom[1] - self.prev_xy_odom[1]) ** 2)
+
+                print("Total Distance Traveled: ", self.total_dist)
+
+        else:
+            self.xy_odom = new_odom
 
     def process_cur_pose(self, pose_msg):
         self.xy = (pose_msg.pose.pose.position.x, pose_msg.pose.pose.position.y)
@@ -331,11 +348,9 @@ class ExplorerNode(Node):
 
         self.executing = False
 
-        self.exec_occupancy_grid(self.occupancy_grid_msg)
-
     def feedback_callback(self, feedback_msg):
         feedback = feedback_msg.feedback
-        self.get_logger().info('Feedback {0}'.format(feedback))
+        #self.get_logger().info('Feedback {0}'.format(feedback))
 
     def process_cmd_vel(self, cmd_vel_msg_):
         # Forward to ut/cmd_vel
@@ -354,6 +369,8 @@ class ExplorerNode(Node):
 
         self.occupancy_grid_msg = occupancy_grid_msg
 
+        self.exec_occupancy_grid(self.occupancy_grid_msg)
+
         print("Got Occupancy Grid")
 
     def exec_occupancy_grid(self, occupancy_grid_msg):
@@ -362,7 +379,7 @@ class ExplorerNode(Node):
         ## Need the robot's current pose.
 
         ## Pass the array to WFD
-        print("Saved current xy: ", self.xy)
+        #print("Saved current xy: ", self.xy)
         current_pose = (int((self.xy[1] - offset[1])/resolution[1]), int((self.xy[0] - offset[0])/resolution[0]))
         target_pose = get_next_obs_point(masked_np_array, current_pose)
         ## Publish the target_pose to the correct topic..
@@ -376,7 +393,7 @@ class ExplorerNode(Node):
         pose_msg.pose.position.x = float(target_pose[1] * resolution[1] + offset[0])
         pose_msg.pose.position.y = float(target_pose[0] * resolution[0] + offset[1])
 
-        print(f"Sending Goal: {(pose_msg.pose.position.x, pose_msg.pose.position.y)} from position: {(self.xy[0], self.xy[1])}")
+        #print(f"Sending Goal: {(pose_msg.pose.position.x, pose_msg.pose.position.y)} from position: {(self.xy[0], self.xy[1])}")
 
         rotation = TurtleBot4Directions.NORTH # TODO Need to actually pick a direciton intelligently
         pose_msg.pose.orientation.z = np.sin(np.deg2rad(rotation) / 2)
